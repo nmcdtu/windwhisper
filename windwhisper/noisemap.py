@@ -35,7 +35,7 @@ class NoiseMap:
             self.superimpose_wind_turbines_noise()
         )  # pairs table with for each turbine, each listener
 
-        self.LAT, self.LON, self.noise_propagation_array = self.generate_noise_map()
+        self.LAT, self.LON, self.noise_attenuation = self.generate_noise_map()
         self.noise_level_at_wind_speeds = self.noise_map_at_wind_speeds(
             np.vstack(
                 [
@@ -44,16 +44,7 @@ class NoiseMap:
                 ]
             )
         )
-        self.noise_level_at_mean_wind_speed = self.noise_map_at_wind_speeds(
-            np.vstack(
-                [
-                    specs["noise_vs_wind_speed"].interp(
-                        wind_speed=specs["mean_wind_speed"].mean()
-                    )
-                    for specs in self.wind_turbines.values()
-                ]
-            )
-        )
+
 
     def calculate_sound_level_at_distance(
         self, dBsource: float, distance: float
@@ -121,17 +112,19 @@ class NoiseMap:
             np.ndarray: A 2D array representing the noise map.
         """
 
-        intensity_distance = noise - self.noise_propagation_array[..., None]
+        intensity_distance = noise - self.noise_attenuation[..., None]
 
         # dB at distance
         Z = 10 * np.log10((10 ** (intensity_distance / 10)).sum(axis=2))
 
         # create xarray to store Z
 
+        wind_speeds = self.wind_turbines[list(self.wind_turbines.keys())[0]]["noise_vs_wind_speed"].wind_speed
+
         Z = xr.DataArray(
             data=Z,
             dims=("lat", "lon", "wind_speed"),
-            coords={"lat": self.LAT[:,0], "lon": self.LON[0,:], "wind_speed": noise.shape[-1]},
+            coords={"lat": self.LAT[:,0], "lon": self.LON[0,:], "wind_speed": wind_speeds},
         )
 
         return Z
@@ -187,9 +180,9 @@ class NoiseMap:
             ]
         ).reshape(LAT.shape[0], LAT.shape[1], len(positions))
 
-        noise_propagation_over_distance = 20 * np.log10(distances)  # dB
+        noise_attenuation_over_distance = 20 * np.log10(distances)  # dB
 
-        return LAT, LON, noise_propagation_over_distance
+        return LAT, LON, noise_attenuation_over_distance
 
     def plot_noise_map(self):
         """
