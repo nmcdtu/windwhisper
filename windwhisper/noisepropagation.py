@@ -143,7 +143,9 @@ class NoisePropagation:
         lon_max = max(
             turbine["position"][1] for turbine in self.wind_turbines.values()
         )
-        margin = (1/125)
+
+        # add a 500 meters margin to the bounding box
+        margin = 0.01
 
         # Adjust the map size to include observation points
 

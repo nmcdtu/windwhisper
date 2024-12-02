@@ -2,6 +2,7 @@ import numpy as np
 import xarray as xr
 from .ambient_noise import get_ambient_noise_levels
 from .settlement import get_wsf_map_preview
+from haversine import haversine, Unit
 
 def create_bounding_box(noise_map):
     """
@@ -14,6 +15,9 @@ def create_bounding_box(noise_map):
     lat_max = noise_map.lat.max().values.item(0)
     lon_min = noise_map.lon.min().values.item(0)
     lon_max = noise_map.lon.max().values.item(0)
+
+    # print bounding box dimensions in meters
+    print(f"Bounding box dimensions: {haversine((lat_min, lon_min), (lat_max, lon_min), Unit.METERS)}m x {haversine((lat_min, lon_min), (lat_min, lon_max), Unit.METERS)}m")
 
     return {
         "lat_min": lat_min,
