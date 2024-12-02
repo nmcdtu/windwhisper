@@ -5,6 +5,7 @@ import ipywidgets as widgets
 from IPython.display import display
 import matplotlib.pyplot as plt
 import xarray as xr
+from scipy.interpolate import interp1d
 
 NOISE_MAP_RESOLUTION = 100
 
@@ -42,9 +43,57 @@ class NoiseMap:
                     specs["noise_vs_wind_speed"].values
                     for specs in self.wind_turbines.values()
                 ]
-            )
+            ),
+            coord_name="wind_speed",
+            coord_value=[specs["noise_vs_wind_speed"].coords["wind_speed"].values for specs in self.wind_turbines.values()][0],
         )
 
+        self.calculate_hourly_noise_levels()
+
+        self.hourly_noise_levels = self.noise_map_at_wind_speeds(
+            np.vstack(
+                [
+                    specs["noise_per_hour"].values
+                    for specs in self.wind_turbines.values()
+                ]
+            ),
+            coord_name="hour",
+            coord_value=[specs["noise_per_hour"].coords["hour"].values for specs in self.wind_turbines.values()][0],
+        )
+
+
+    def calculate_hourly_noise_levels(self):
+
+        for turbine, turbine_specs in self.wind_turbines.items():
+            wind_speeds = turbine_specs["mean_wind_speed"].values.flatten()
+            noise_levels = turbine_specs["noise_vs_wind_speed"].values
+            noise_level_wind_speeds = turbine_specs["noise_vs_wind_speed"].coords["wind_speed"].values
+
+            # Create interpolation function
+            interpolate_noise = interp1d(
+                noise_level_wind_speeds,
+                noise_levels,
+                bounds_error=False,
+                fill_value="extrapolate"
+            )
+
+            # Interpolate to find noise levels for the average wind speeds
+            calculated_noise_levels = interpolate_noise(wind_speeds)
+
+            # Create an xarray DataArray for the results
+            noise_per_hour = xr.DataArray(
+                calculated_noise_levels,
+                dims=["hour"],
+                coords={"hour": np.arange(len(wind_speeds))},
+                name="noise_level"
+            )
+
+            # Add metadata
+            noise_per_hour.attrs["units"] = "dB"
+            noise_per_hour.attrs["description"] = "Predicted noise levels for hourly average wind speeds"
+
+            # Add the noise levels to the wind turbine specs
+            turbine_specs["noise_per_hour"] = noise_per_hour
 
     def calculate_sound_level_at_distance(
         self, dBsource: float, distance: float
@@ -101,7 +150,8 @@ class NoiseMap:
             pair["intensity_level_dB"] = dB_level
         return pairs
 
-    def noise_map_at_wind_speeds(self, noise) -> xr.DataArray:
+
+    def noise_map_at_wind_speeds(self, noise, coord_name, coord_value) -> xr.DataArray:
         """
         Generates a noise map for the wind turbines
         and observation points for each wind speed level.
@@ -118,14 +168,13 @@ class NoiseMap:
         Z = 10 * np.log10((10 ** (intensity_distance / 10)).sum(axis=2))
 
         # create xarray to store Z
-
-        wind_speeds = self.wind_turbines[list(self.wind_turbines.keys())[0]]["noise_vs_wind_speed"].wind_speed
-
         Z = xr.DataArray(
             data=Z,
-            dims=("lat", "lon", "wind_speed"),
-            coords={"lat": self.LAT[:,0], "lon": self.LON[0,:], "wind_speed": wind_speeds},
+            dims=("lat", "lon", coord_name),
+            coords={"lat": self.LAT[:,0], "lon": self.LON[0,:], coord_name: coord_value},
         )
+
+        Z.values = np.clip(Z.values, a_min=0, a_max=None)
 
         return Z
 
@@ -184,24 +233,44 @@ class NoiseMap:
 
         return LAT, LON, noise_attenuation_over_distance
 
-    def plot_noise_map(self):
+    def plot_noise_map(self, dimension: str = "wind_speed"):
         """
         Plots the noise map with wind turbines and observation points.
         """
 
         # Create a wind speed slider for user interaction
-        wind_speed_slider = widgets.FloatSlider(
-            value=7.0,
-            min=3.0,
-            max=12.0,
-            step=1.0,
-            description="Wind Speed (m/s):",
-            continuous_update=True,
-        )
+        if dimension == "wind_speed":
+            slider = widgets.FloatSlider(
+                value=7.0,
+                min=3.0,
+                max=12.0,
+                step=1.0,
+                description="Wind Speed (m/s):",
+                continuous_update=True,
+            )
+        else:
+            # against hours of the day
+            slider = widgets.IntSlider(
+                value=12,
+                min=0,
+                max=23,
+                step=1,
+                description="Hour of the day:",
+                continuous_update=True,
+            )
 
-        @widgets.interact(wind_speed=wind_speed_slider)
+        @widgets.interact(wind_speed=slider)
         def interactive_plot(wind_speed):
             plt.figure(figsize=(10, 6))
+
+            if dimension == "wind_speed":
+                data = self.noise_level_at_wind_speeds.interp(
+                    wind_speed=wind_speed, kwargs={"fill_value": "extrapolate"}
+                )
+            else:
+                data = self.hourly_noise_levels.interp(
+                    hour=wind_speed, kwargs={"fill_value": "extrapolate"}
+                )
 
             # Define contour levels starting from 35 dB
             contour_levels = [35, 40, 45, 50, 55, 60]
@@ -213,9 +282,7 @@ class NoiseMap:
             plt.contourf(
                 self.LON,  # x-axis, longitude
                 self.LAT,  # y-axis, latitude
-                self.Z.interp(
-                    wind_speed=wind_speed, kwargs={"fill_value": "extrapolate"}
-                ),
+                data,
                 levels=contour_levels,
                 cmap="RdYlBu_r",
             )
@@ -251,7 +318,7 @@ class NoiseMap:
             plt.grid(True)
             plt.show()
 
-    def display_turbines_on_map(self):
+    def plot_on_map(self):
         """
         Displays the wind turbines and observation points
         on a real map using their latitude and longitude.
@@ -268,11 +335,11 @@ class NoiseMap:
         # Create a folium map centered at the average latitude and longitude
         m = folium.Map(location=[avg_lat, avg_lon], zoom_start=12)
 
-        # Add markers for each wind turbine with a noise level of 105 dB
+        # Add markers for each wind turbine
         for turbine, specs in self.wind_turbines.items():
             folium.Marker(
                 location=specs["position"],
-                tooltip=f"Noise Level: 105 dB",  # Set noise level to 105 dB
+                tooltip=f"{'name'}, {specs['power']} MW Wind Turbine",
                 icon=folium.Icon(icon="cloud"),
             ).add_to(m)
 

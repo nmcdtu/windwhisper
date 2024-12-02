@@ -250,7 +250,6 @@ class WindTurbines:
 
         self.noise_map = None
         self.ws = None
-        self.noise_analysis = None
         self.wind_turbines = check_wind_turbine_specs(wind_turbines)
         if listeners is not None:
             self.listeners = check_listeners(listeners)
@@ -274,6 +273,13 @@ class WindTurbines:
 
         self.fetch_noise_level_vs_wind_speed()
         self.fetch_noise_map()
+        self.noise_analysis = NoiseAnalysis(
+            noise_map=self.noise_map,
+            wind_turbines=self.wind_turbines,
+            listeners=self.listeners,
+        )
+        self.wind_turbines = self.noise_analysis.wind_turbines
+        self.listeners = self.noise_analysis.listeners
 
     def fetch_noise_level_vs_wind_speed(self):
         """
@@ -372,15 +378,6 @@ class WindTurbines:
             wind_turbines=self.wind_turbines,
             listeners=self.listeners,
         )
-
-    def analyze_noise(self):
-        self.noise_analysis = NoiseAnalysis(
-            noise_map=self.noise_map,
-            wind_turbines=self.wind_turbines,
-            listeners=self.listeners,
-        )
-        self.wind_turbines = self.noise_analysis.wind_turbines
-        self.listeners = self.noise_analysis.listeners
 
     def find_affected_buildings_from_radius(self, radius: float) -> dict:
         """

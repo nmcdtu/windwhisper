@@ -26,13 +26,12 @@ PIXEL_VALUE_TO_LDEN = {
     3: 65,
     4: 70,
     5: 75,
-    15: 0
+    15: 0,
+    None: np.nan
 }
 
-def get_noise_values(url: str, lon: float, lat: float, buffer: int = 500) -> tuple[[list, None], float, float, float, float] | None:
-    x, y = translate_4326_to_3035(lon, lat)
-    x_min, y_min, x_max, y_max = create_bounding_box(x, y, buffer)
 
+def get_noise_values(url: str, x_min, x_max, y_min, y_max) -> xr.DataArray | None:
     params = {
         "bbox": f"{x_min},{y_min},{x_max},{y_max}",
         "bboxSR": "3035",
@@ -51,7 +50,7 @@ def get_noise_values(url: str, lon: float, lat: float, buffer: int = 500) -> tup
                 # Read the first band of data
                 data = dataset.read(1)
                 data = np.vectorize(PIXEL_VALUE_TO_LDEN.get)(data)
-                return data, x_min, y_min, x_max, y_max
+                return data
     else:
         print(f"Failed to fetch data: {response.status_code}")
         return None
@@ -73,20 +72,25 @@ def combine_noise_levels(noise_layers: list) -> np.ndarray:
     return combined
 
 
-def get_ambient_noise_levels(longitude: float, latitude: float, buffer: int = 500) -> xr.DataArray | None:
+def get_ambient_noise_levels(lon_min: float, lon_max: float, lat_min: float, lat_max: float) -> xr.DataArray | None:
     """
     Get the ambient noise levels for a given location.
-    :param longitude: Longitude of the location.
-    :param latitude: Latitude of the location.
-    :param buffer: Buffer distance in meters.
+    :param lon_min: Minimum longitude of the bounding box.
+    :param lon_max: Maximum longitude of the bounding box.
+    :param lat_min: Minimum latitude of the bounding box.
+    :param lat_max: Maximum latitude of the bounding box.
     :return: A numpy array with the ambient noise levels in Lden.
     """
 
     noise_layers = []
-    x_min, y_min, x_max, y_max = None, None, None, None
+    x_min, y_min = translate_4326_to_3035(lon_min, lat_min)
+    x_max, y_max = translate_4326_to_3035(lon_max, lat_max)
 
     for t, url in NOISE_MAPS_URLS.items():
-        layer, x_min, y_min, x_max, y_max = get_noise_values(url, longitude, latitude, buffer)
+        layer = get_noise_values(url, x_min, x_max, y_min, y_max)
+
+        layer = np.where(layer == None, 0, layer)  # Convert None to 0
+        layer = layer.astype(float)
 
         if layer is not None:
             noise_layers.append(layer)
@@ -102,14 +106,13 @@ def get_ambient_noise_levels(longitude: float, latitude: float, buffer: int = 50
             y_min=y_min,
             x_max=x_max,
             y_max=y_max,
-            resolution=resolution
         )
 
     else:
         return None
 
 
-def create_xarray_from_raster(data, x_min, y_min, x_max, y_max, resolution):
+def create_xarray_from_raster(data, x_min, y_min, x_max, y_max):
     """
     Create an xarray.DataArray from raster data and transform coordinates to EPSG:4326.
 
@@ -136,10 +139,10 @@ def create_xarray_from_raster(data, x_min, y_min, x_max, y_max, resolution):
     # Create the DataArray
     raster_da = xr.DataArray(
         data,
-        dims=["y", "x"],
+        dims=["lat", "lon"],
         coords={
-            "lon": (["y", "x"], lon_coords),  # Longitude in EPSG:4326
-            "lat": (["y", "x"], lat_coords)  # Latitude in EPSG:4326
+            "lat": lat_coords[:, 0],
+            "lon": lon_coords[0, :],
         },
         attrs={
             "crs": "EPSG:4326",
@@ -149,4 +152,3 @@ def create_xarray_from_raster(data, x_min, y_min, x_max, y_max, resolution):
     )
 
     return raster_da
-
