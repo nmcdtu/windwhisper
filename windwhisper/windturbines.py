@@ -24,7 +24,7 @@ from osmnx._errors import InsufficientResponseError
 
 from . import DATA_DIR
 from .windspeed import WindSpeed
-from .noisemap import NoiseMap
+from .noisepropagation import NoisePropagation
 from .noiseanalysis import NoiseAnalysis
 
 
@@ -238,7 +238,8 @@ class WindTurbines:
         retrain_model: bool = False,
         dataset_file: str = None,
         wind_speed_data: xr.DataArray | str = None,
-        radius_threshold: float = None,
+        humidity: int = 70,
+        temperature: int = 10,
     ):
         """
         Initializes the WindTurbines object.
@@ -246,6 +247,18 @@ class WindTurbines:
         :type model_file: str
         :param dataset_file: if specified, the model is retrained using the given dataset.
         :type dataset_file: str
+        :param wind_turbines: A dictionary containing the wind turbine specifications.
+        :type wind_turbines: dict
+        :param listeners: A dictionary containing the listener specifications.
+        :type listeners: dict
+        :param retrain_model: If True, the model is retrained using the dataset file.
+        :type retrain_model: bool
+        :param wind_speed_data: A xarray.DataArray containing the wind speed data.
+        :type wind_speed_data: xr.DataArray
+        :param humidity: The relative humidity in percent. Default is 70.
+        :type humidity: int
+        :param temperature: The temperature in degrees Celsius. Default is 10.
+        :type temperature: int
         """
 
         self.noise_map = None
@@ -253,13 +266,7 @@ class WindTurbines:
         self.wind_turbines = check_wind_turbine_specs(wind_turbines)
         if listeners is not None:
             self.listeners = check_listeners(listeners)
-        else:
-            if radius_threshold is None:
-                self.listeners = {}
-            else:
-                self.listeners = self.find_affected_buildings_from_radius(
-                    radius=radius_threshold
-                )
+
         self.fetch_wind_speeds(wind_speed_data)
 
         if retrain_model:
@@ -272,19 +279,22 @@ class WindTurbines:
                 self.model, self.noise_cols = train_wind_turbine_model(dataset_file)
 
         self.fetch_noise_level_vs_wind_speed()
-        self.fetch_noise_map()
+        self.noise_map = NoisePropagation(
+            wind_turbines=self.wind_turbines,
+            humidity=humidity,
+            temperature=temperature
+        )
         self.noise_analysis = NoiseAnalysis(
             noise_map=self.noise_map,
             wind_turbines=self.wind_turbines,
-            listeners=self.listeners,
         )
         self.wind_turbines = self.noise_analysis.wind_turbines
-        self.listeners = self.noise_analysis.listeners
 
     def fetch_noise_level_vs_wind_speed(self):
         """
         Predicts noise levels based on turbine specifications for
-        multiple turbines.
+        multiple turbines. Noise levels are predicted for wind speeds
+        in the range of 3 to 12 m/s, expressed in dBa.
 
         :return: A DataFrame containing the noise predictions
         for each turbine.
@@ -373,43 +383,3 @@ class WindTurbines:
             wind_speed_data=wind_speed_data,
         ).wind_turbines
 
-    def fetch_noise_map(self):
-        self.noise_map = NoiseMap(
-            wind_turbines=self.wind_turbines,
-            listeners=self.listeners,
-        )
-
-    def find_affected_buildings_from_radius(self, radius: float) -> dict:
-        """
-        Finds the buildings located within the given radius of the wind turbines.
-        :param radius: The radius in meters.
-        :return: A dictionary (self.listeners) containing the affected buildings,
-        with their locations (using osmnx).
-        """
-
-        building_locations = {}
-
-        for turbine, specs in self.wind_turbines.items():
-            location = specs["position"]
-
-            try:
-                a = ox.features.features_from_point(
-                    location, tags={"building": True}, dist=float(radius)
-                )
-
-                # iterate over "geometry"
-                # if it's a polygon, find its centroid
-                # if it's a point, use directly
-
-                for b, building in enumerate(a["geometry"]):
-                    building_locations[f"Building {str(uuid.uuid4())}"] = {
-                        "position": (
-                            building.centroid.y,
-                            building.centroid.x,
-                        )
-                    }
-
-            except InsufficientResponseError:
-                pass
-
-        return building_locations

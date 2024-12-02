@@ -1,5 +1,5 @@
 import pytest
-from windwhisper.noisemap import NoiseMap
+from windwhisper.noisepropagation import NoisePropagation
 from unittest.mock import patch
 import numpy as np
 import xarray as xr
@@ -20,8 +20,8 @@ def test_noise_map_initialization():
     listeners = {"Listener1": {"position": (47.5, 8.25)}}
 
     # Mock sound level and noise map to avoid detailed calculations
-    with patch.object(NoiseMap, 'noise_map_at_wind_speeds', return_value=np.array([[55.0]])):
-        with patch.object(NoiseMap, 'calculate_sound_level_at_distance', return_value=55.0):
-            nm = NoiseMap(wind_turbines, listeners)
+    with patch.object(NoisePropagation, 'noise_map_at_wind_speeds', return_value=np.array([[55.0]])):
+        with patch.object(NoisePropagation, 'calculate_sound_level_at_distance', return_value=55.0):
+            nm = NoisePropagation(wind_turbines, listeners)
             nm.superimpose_wind_turbines_noise()
             assert nm.individual_noise is not None

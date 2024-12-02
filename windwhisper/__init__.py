@@ -8,7 +8,7 @@ __all__ = (
     "DATA_DIR",
     "WindTurbines",
     "WindSpeed",
-    "NoiseMap",
+    "NoisePropagation",
     "NoiseAnalysis",
 )
 
@@ -17,5 +17,5 @@ DATA_DIR = Path(__file__).resolve().parent / "data"
 
 from .windturbines import WindTurbines
 from .windspeed import WindSpeed
-from .noisemap import NoiseMap
+from .noisepropagation import NoisePropagation
 from .noiseanalysis import NoiseAnalysis

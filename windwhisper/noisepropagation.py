@@ -7,9 +7,12 @@ import matplotlib.pyplot as plt
 import xarray as xr
 from scipy.interpolate import interp1d
 
+from .atmospheric_absorption import get_absorption_coefficient
+from .geometric_divergence import get_geometric_spread_loss
+
 NOISE_MAP_RESOLUTION = 100
 
-class NoiseMap:
+class NoisePropagation:
     """
     The NoiseMap class is responsible for generating and displaying noise maps based on sound intensity levels.
 
@@ -22,21 +25,18 @@ class NoiseMap:
     def __init__(
         self,
         wind_turbines: dict,
-        listeners: dict,
-        alpha: float = 2.0,
+        humidity: float = 70,
+        temperature: float = 20,
     ):
         """
         Initialize the NoiseMap class.
 
         """
-        self.alpha = alpha / 1000  # Convert alpha from dB/km to dB/m
+        self.temperature = temperature
+        self.humidity = humidity
         self.wind_turbines = wind_turbines
-        self.listeners = listeners
-        self.individual_noise = (
-            self.superimpose_wind_turbines_noise()
-        )  # pairs table with for each turbine, each listener
 
-        self.LAT, self.LON, self.noise_attenuation = self.generate_noise_map()
+        self.LAT, self.LON, self.noise_attenuation = self.calculate_noise_propagation()
         self.noise_level_at_wind_speeds = self.noise_map_at_wind_speeds(
             np.vstack(
                 [
@@ -95,61 +95,6 @@ class NoiseMap:
             # Add the noise levels to the wind turbine specs
             turbine_specs["noise_per_hour"] = noise_per_hour
 
-    def calculate_sound_level_at_distance(
-        self, dBsource: float, distance: float
-    ) -> float:
-        """
-        Calculate the sound level at a given distance from the source considering
-        attenuation due to distance and atmospheric absorption.
-
-        Parameters:
-            dBsource (float): Sound level in decibels at the source.
-            distance (float): Distance from the source in meters.
-
-        Returns:
-            float: Sound level at the given distance in decibels.
-        """
-        if distance == 0:
-            return dBsource
-
-        geometric_spreading_loss = 10 * np.log10(4 * np.pi * distance**2) + 11
-        atmospheric_absorption_loss = self.alpha * distance
-
-        total_attenuation = geometric_spreading_loss + atmospheric_absorption_loss
-        resulting_sound_level = dBsource - total_attenuation
-
-        return resulting_sound_level
-
-    def superimpose_wind_turbines_noise(self):
-        """
-        Superimposes the sound levels of several wind turbines
-        :return: a list of dictionaries, with each dictionary representing a pair of turbine and listener
-        and the distance between them and the sound level at that distance for
-        each wind speed level
-        """
-        pairs = [
-            {
-                "turbine_name": turbine,
-                "turbine_position": turbine_specs["position"],
-                "listener_name": listener,
-                "listener_position": listener_specs["position"],
-                "distance": round(
-                    haversine(
-                        turbine_specs["position"], listener_specs["position"], unit=Unit.METERS
-                    )
-                ),
-            }
-            for turbine, turbine_specs in self.wind_turbines.items()
-            for listener, listener_specs in self.listeners.items()
-        ]
-
-        # add dB level for each turbine
-        for p, pair in enumerate(pairs):
-            noise = self.wind_turbines[pair["turbine_name"]]["noise_vs_wind_speed"]
-            dB_level = self.calculate_sound_level_at_distance(noise, pair["distance"])
-            pair["intensity_level_dB"] = dB_level
-        return pairs
-
 
     def noise_map_at_wind_speeds(self, noise, coord_name, coord_value) -> xr.DataArray:
         """
@@ -178,7 +123,7 @@ class NoiseMap:
 
         return Z
 
-    def generate_noise_map(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def calculate_noise_propagation(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Generates a noise map for the wind turbines
         and observation points based on the given wind speed.
@@ -201,18 +146,11 @@ class NoiseMap:
         margin = (1/125)
 
         # Adjust the map size to include observation points
-        # if any are present
-        if self.listeners:
-            for point in self.individual_noise:
-                lat_min = min(lat_min, point["listener_position"][0]) - margin
-                lat_max = max(lat_max, point["listener_position"][0]) + margin
-                lon_min = min(lon_min, point["listener_position"][1]) - margin
-                lon_max = max(lon_max, point["listener_position"][1]) + margin
-        else:
-            lat_min -= margin
-            lat_max += margin
-            lon_min -= margin
-            lon_max += margin
+
+        lat_min -= margin
+        lat_max += margin
+        lon_min -= margin
+        lon_max += margin
 
         lon_array = np.linspace(lon_min, lon_max, NOISE_MAP_RESOLUTION)
         lat_array = np.linspace(lat_min, lat_max, NOISE_MAP_RESOLUTION)
@@ -229,7 +167,17 @@ class NoiseMap:
             ]
         ).reshape(LAT.shape[0], LAT.shape[1], len(positions))
 
-        noise_attenuation_over_distance = 20 * np.log10(distances)  # dB
+        # Calculate the geometric spreading loss, according to ISO 9613-2
+        geometric_spreading_loss = get_geometric_spread_loss(distances)
+
+        # Calculate the atmospheric absorption loss, according to ISO 9613-2
+        atmospheric_absorption_loss = (get_absorption_coefficient(
+            self.temperature,
+            self.humidity
+        ) * distances) / 1000
+
+        # add both losses
+        noise_attenuation_over_distance = geometric_spreading_loss + atmospheric_absorption_loss
 
         return LAT, LON, noise_attenuation_over_distance
 
@@ -303,54 +251,6 @@ class NoiseMap:
                     turbine,
                 )
 
-            # Plot observation points
-            for point, specs in self.listeners.items():
-                plt.plot(
-                    *specs["position"][::-1], "ro"
-                )  # Make sure the position is in (Longitude, Latitude) order
-                # add label next to it
-                plt.text(
-                    specs["position"][1] + 0.002,
-                    specs["position"][0] + 0.002,
-                    point,
-                )
-
             plt.grid(True)
             plt.show()
-
-    def plot_on_map(self):
-        """
-        Displays the wind turbines and observation points
-        on a real map using their latitude and longitude.
-        """
-
-        # Get the average latitude and longitude to center the map
-        avg_lat = sum(turbine["position"][0] for turbine in self.wind_turbines.values()) / len(
-            self.wind_turbines
-        )
-        avg_lon = sum(turbine["position"][1] for turbine in self.wind_turbines.values()) / len(
-            self.wind_turbines
-        )
-
-        # Create a folium map centered at the average latitude and longitude
-        m = folium.Map(location=[avg_lat, avg_lon], zoom_start=12)
-
-        # Add markers for each wind turbine
-        for turbine, specs in self.wind_turbines.items():
-            folium.Marker(
-                location=specs["position"],
-                tooltip=f"{'name'}, {specs['power']} MW Wind Turbine",
-                icon=folium.Icon(icon="cloud"),
-            ).add_to(m)
-
-        # Add markers for the observation points
-        for observation_point, specs in self.listeners.items():
-            folium.Marker(
-                location=specs["position"],
-                tooltip="Observation Point",
-                icon=folium.Icon(icon="star", color="red"),
-            ).add_to(m)
-
-        # Display the map
-        display(m)
 

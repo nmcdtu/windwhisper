@@ -1,16 +1,26 @@
 import numpy as np
 import xarray as xr
-import folium
-from pathlib import Path
-from datetime import datetime
-from typing import Dict
-
-from . import DATA_DIR
-from .utils import translate_4326_to_3035, create_bounding_box
 from .ambient_noise import get_ambient_noise_levels
 from .settlement import get_wsf_map_preview
 
+def create_bounding_box(noise_map):
+    """
+    Create a bounding box for the given noise map.
 
+    :param noise_map: A DataArray containing the noise levels.
+    :return: A tuple containing the bounding box coordinates.
+    """
+    lat_min = noise_map.lat.min().values.item(0)
+    lat_max = noise_map.lat.max().values.item(0)
+    lon_min = noise_map.lon.min().values.item(0)
+    lon_max = noise_map.lon.max().values.item(0)
+
+    return {
+        "lat_min": lat_min,
+        "lat_max": lat_max,
+        "lon_min": lon_min,
+        "lon_max": lon_max
+    }
 
 class NoiseAnalysis:
     """
@@ -18,29 +28,28 @@ class NoiseAnalysis:
 
     :ivar wind_turbines: A list of dictionaries containing the wind turbine data.
     :ivar noise_map: A NoiseMap object containing the noise data.
-    :ivar listeners: A list of dictionaries containing the observation points data.
     :ivar alpha: Air absorption coefficient.
 
     """
 
-    def __init__(self, noise_map, wind_turbines, listeners):
+    def __init__(self, noise_map, wind_turbines):
         self.noise_map = noise_map
         self.wind_turbines = wind_turbines
-        self.listeners = listeners
         self.lden_map = self.compute_lden()
+        self.bbox = create_bounding_box(self.lden_map)
         self.ambient_noise_map = get_ambient_noise_levels(
-            lon_min=self.lden_map.lon.min(),
-            lon_max=self.lden_map.lon.max(),
-            lat_min=self.lden_map.lat.min(),
-            lat_max=self.lden_map.lat.max()
+            lon_min=self.bbox["lon_min"],
+            lon_max=self.bbox["lon_max"],
+            lat_min=self.bbox["lat_min"],
+            lat_max=self.bbox["lat_max"]
         )
 
         self.settlement_map = get_wsf_map_preview(
             bbox=(
-                self.lden_map.lon.min().values.item(0),
-                self.lden_map.lat.min().values.item(0),
-                self.lden_map.lon.max().values.item(0),
-                self.lden_map.lat.max().values.item(0)
+                self.bbox["lon_min"],
+                self.bbox["lat_min"],
+                self.bbox["lon_max"],
+                self.bbox["lat_max"]
             )
         )
 
