@@ -5,11 +5,16 @@ Fetch elevation grid for an area.
 import requests
 import numpy as np
 import xarray as xr
+import os
+from dotenv import load_dotenv
+from xarray import DataArray
 
+load_dotenv()
 
-OPEN_ELEVATION_API = "https://api.open-elevation.com/api/v1/lookup?locations="
+OPEN_ELEVATION_API = os.getenv("API_OPEN_ELEVATION")
+MAX_SAMPLING_POINTS = int(os.getenv("MAX_SAMPLING_POINTS"))
 
-def get_elevation_grid(longitudes: list, latitudes: list) -> xr.DataArray:
+def get_elevation_grid(longitudes: np.array, latitudes: np.array) -> DataArray | None:
     """
     Fetch elevation data for a given bounding box.
 
@@ -22,9 +27,11 @@ def get_elevation_grid(longitudes: list, latitudes: list) -> xr.DataArray:
     min_lon, max_lon = longitudes[0], longitudes[-1]
     min_lat, max_lat = latitudes[0], latitudes[-1]
 
+    print(f"Bounding box: {min_lon, max_lon, min_lat, max_lat}")
+
     # sample 10 points along the bounding box
-    lon_step = (max_lon - min_lon) / 10
-    lat_step = (max_lat - min_lat) / 10
+    lon_step = (max_lon - min_lon) / MAX_SAMPLING_POINTS
+    lat_step = (max_lat - min_lat) / MAX_SAMPLING_POINTS
 
     longitudes_ = np.arange(min_lon, max_lon, lon_step)
     latitudes_ = np.arange(min_lat, max_lat, lat_step)
@@ -61,18 +68,20 @@ def get_elevation_grid(longitudes: list, latitudes: list) -> xr.DataArray:
         # increase resolution to match the original bounding box
         xr_array = xr_array.interp(lat=latitudes, lon=longitudes, method="linear")
 
-        print(xr_array.isnull().sum())
-
         # fill missing values with the nearest neighbor
         xr_array = xr_array.interpolate_na(method="nearest", dim="lat")
         xr_array = xr_array.interpolate_na(method="nearest", dim="lon")
-
-        print(xr_array.isnull().sum())
-
 
         return xr_array
 
     else:
         print(f"Failed to fetch elevation data: {response.status_code}")
         return None
+
+def distances_with_elevation(distances, relative_elevations):
+    """
+    Based on elevation and haversine distance, calculate the distance between two points
+    considering the elevation difference.
+    """
+    return np.sqrt(distances ** 2 + relative_elevations ** 2)
 

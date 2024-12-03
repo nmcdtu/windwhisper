@@ -5,6 +5,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 from pathlib import Path
 import requests
+import os
+from dotenv import load_dotenv
+
+API_NEWA = os.getenv("API_NEWA")
 
 # path to dev/fixtures folder, with test being in the root folder
 FIXTURE_DIR = Path(__file__).parent.parent / "dev" / "fixtures"
@@ -42,12 +46,8 @@ def _download_single_turbine_data(turbine):
     """
     latitude = turbine["position"][0]
     longitude = turbine["position"][1]
-    url = (
-        f"https://wps.neweuropeanwindatlas.eu/api/mesoscale-ts/"
-        f"v1/get-data-point?latitude={latitude}&longitude={longitude}"
-        f"&variable=WD10&variable=WS10&dt_start=2016-"
-        f"01-01T00:00:00&dt_stop=2018-12-31T23:30:00"
-    )
+
+    url = API_NEWA.replace("=longitude", f"={longitude}").replace("=latitude", f"={latitude}")
 
     attempts = 0
     max_attempts = 10

@@ -9,8 +9,50 @@ from scipy.interpolate import interp1d
 
 from .atmospheric_absorption import get_absorption_coefficient
 from .geometric_divergence import get_geometric_spread_loss
+from .elevation_grid import get_elevation_grid, distances_with_elevation
 
 NOISE_MAP_RESOLUTION = 100
+
+def define_bounding_box(wind_turbines: dict) -> tuple:
+    """
+    Define the bounding box for the noise map based on the wind turbines' positions.
+
+    :param wind_turbines: A dictionary containing the wind turbine data.
+
+    Returns:
+        tuple: A tuple containing the bounding box coordinates.
+    """
+
+    # Determine the bounding box for the map
+
+    lat_min = min(
+        turbine["position"][0] for turbine in wind_turbines.values()
+    )
+    lat_max = max(
+        turbine["position"][0] for turbine in wind_turbines.values()
+    )
+    lon_min = min(
+        turbine["position"][1] for turbine in wind_turbines.values()
+    )
+    lon_max = max(
+        turbine["position"][1] for turbine in wind_turbines.values()
+    )
+
+    # add a 500 meters margin to the bounding box
+    margin = 0.01
+
+    # Adjust the map size to include observation points
+
+    lat_min -= margin
+    lat_max += margin
+    lon_min -= margin
+    lon_max += margin
+
+    lon_array = np.linspace(lon_min, lon_max, NOISE_MAP_RESOLUTION)
+    lat_array = np.linspace(lat_min, lat_max, NOISE_MAP_RESOLUTION)
+    LON, LAT = np.meshgrid(lon_array, lat_array)
+
+    return LAT[:, 0], LON[0, :]
 
 class NoisePropagation:
     """
@@ -35,8 +77,14 @@ class NoisePropagation:
         self.temperature = temperature
         self.humidity = humidity
         self.wind_turbines = wind_turbines
+        self.LAT, self.LON = define_bounding_box(wind_turbines)
 
-        self.LAT, self.LON, self.noise_attenuation = self.calculate_noise_propagation()
+        self.elevation_grid = get_elevation_grid(
+            longitudes=self.LON.tolist(),
+            latitudes=self.LAT.tolist()
+        )
+        self.noise_attenuation = self.calculate_noise_attenuation_terms()
+
         self.noise_level_at_wind_speeds = self.noise_map_at_wind_speeds(
             np.vstack(
                 [
@@ -116,72 +164,67 @@ class NoisePropagation:
         Z = xr.DataArray(
             data=Z,
             dims=("lat", "lon", coord_name),
-            coords={"lat": self.LAT[:,0], "lon": self.LON[0,:], coord_name: coord_value},
+            coords={"lat": self.LAT, "lon": self.LON, coord_name: coord_value},
         )
 
         Z.values = np.clip(Z.values, a_min=0, a_max=None)
 
         return Z
 
-    def calculate_noise_propagation(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def calculate_noise_attenuation_terms(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        Generates a noise map for the wind turbines
-        and observation points based on the given wind speed.
+        Calculate the noise attenuation due to:
+        * distance
+        * atmospheric absorption
+        * ground type
+        * elevation difference between the source and receiver.
+
         """
-
-        # Determine the bounding box for the map
-
-        lat_min = min(
-            turbine["position"][0] for turbine in self.wind_turbines.values()
-        )
-        lat_max = max(
-            turbine["position"][0] for turbine in self.wind_turbines.values()
-        )
-        lon_min = min(
-            turbine["position"][1] for turbine in self.wind_turbines.values()
-        )
-        lon_max = max(
-            turbine["position"][1] for turbine in self.wind_turbines.values()
-        )
-
-        # add a 500 meters margin to the bounding box
-        margin = 0.01
-
-        # Adjust the map size to include observation points
-
-        lat_min -= margin
-        lat_max += margin
-        lon_min -= margin
-        lon_max += margin
-
-        lon_array = np.linspace(lon_min, lon_max, NOISE_MAP_RESOLUTION)
-        lat_array = np.linspace(lat_min, lat_max, NOISE_MAP_RESOLUTION)
-        LON, LAT = np.meshgrid(lon_array, lat_array)
 
         # Calculate the noise level at each point
         positions = [point["position"] for point in self.wind_turbines.values()]
 
-        distances = np.array(
+        self.haversine_distances = np.array(
             [
                 haversine(point1=(lat, lon), point2=position, unit=Unit.METERS)
-                for lat, lon in zip(LAT.flatten(), LON.flatten())
+                for lat in self.LAT
+                for lon in self.LON
                 for position in positions
             ]
-        ).reshape(LAT.shape[0], LAT.shape[1], len(positions))
+        ).reshape(self.LAT.shape[0], self.LAT.shape[0], len(positions))
 
         # Calculate the geometric spreading loss, according to ISO 9613-2
-        geometric_spreading_loss = get_geometric_spread_loss(distances)
+        geometric_spreading_loss = get_geometric_spread_loss(self.haversine_distances)
 
         # Calculate the atmospheric absorption loss, according to ISO 9613-2
         atmospheric_absorption_loss = (get_absorption_coefficient(
             self.temperature,
             self.humidity
-        ) * distances) / 1000
+        ) * self.haversine_distances) / 1000
 
         # add both losses
         noise_attenuation_over_distance = geometric_spreading_loss + atmospheric_absorption_loss
 
-        return LAT, LON, noise_attenuation_over_distance
+        # calculation elevation of grid cells compared to turbines' positions
+        # we do this by subtracting the elevation of each grid cell from the elevation of the turbines
+
+        self.relative_elevations = xr.DataArray(
+            data=np.zeros((self.LAT.shape[0], self.LON.shape[0], len(positions))),
+            dims=("lat", "lon", "turbine"),
+            coords={"lat": self.LAT, "lon": self.LON, "turbine": list(self.wind_turbines.keys())}
+        )
+        for turbine, position in enumerate(positions):
+            self.relative_elevations.values[:, :, turbine] = self.elevation_grid.values - self.elevation_grid.interp(coords={"lat": position[0], "lon": position[1]}).values
+
+        euclidian_distance = distances_with_elevation(self.haversine_distances, self.relative_elevations)
+        self.euclidian_distance = xr.DataArray(
+            data=euclidian_distance,
+            dims=("lat", "lon", "turbine"),
+            coords={"lat": self.LAT, "lon": self.LON, "turbine": list(self.wind_turbines.keys())}
+        )
+
+
+        return noise_attenuation_over_distance
 
     def plot_noise_map(self, dimension: str = "wind_speed"):
         """

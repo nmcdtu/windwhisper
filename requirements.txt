@@ -15,3 +15,4 @@ ipywidgets
 requests
 rasterio
 pyproj
+dotenv

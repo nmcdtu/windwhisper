@@ -54,7 +54,7 @@ class NoiseAnalysis:
                 self.bbox["lat_min"],
                 self.bbox["lon_max"],
                 self.bbox["lat_max"]
-            )
+            ),
         )
 
         self.merged_map = self.merge_maps()

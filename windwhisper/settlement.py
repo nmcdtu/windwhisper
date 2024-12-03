@@ -6,16 +6,23 @@ import requests
 from rasterio.io import MemoryFile
 import xarray as xr
 import numpy as np
-import rasterio
 import os
+from dotenv import load_dotenv
 
-WMS_BASE_URL = "https://geoservice.dlr.de/eoc/wms"
+load_dotenv()
 
+WMS_BASE_URL = os.getenv("API_WSF")
 
 # Function to query WMS for a map preview
-def get_wsf_map_preview(bbox, layers="WSF_2019"):
+def get_wsf_map_preview(bbox, layers="WSF_2019", resolution=0.01):
 
-    width, height = 800, 600  # Define resolution
+    # Calculate width and height based on bbox dimensions and resolution
+    lon_diff = bbox[2] - bbox[0]  # max_lon - min_lon
+    lat_diff = bbox[3] - bbox[1]  # max_lat - min_lat
+
+    width = int(lon_diff / resolution)
+    height = int(lat_diff / resolution)
+
     params = {
         "service": "WMS",
         "request": "GetMap",
@@ -27,6 +34,7 @@ def get_wsf_map_preview(bbox, layers="WSF_2019"):
         "crs": "EPSG:4326",
         "format": "image/png",
     }
+
     response = requests.get(WMS_BASE_URL, params=params)
     if response.status_code == 200:
         # Use a memory file to avoid saving to disk

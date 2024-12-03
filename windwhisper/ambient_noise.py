@@ -10,14 +10,17 @@ from rasterio.io import MemoryFile
 import numpy as np
 from pyproj import Transformer
 import xarray as xr
-
+from dotenv import load_dotenv
+import os
 from windwhisper.utils import create_bounding_box, translate_4326_to_3035
 
+load_dotenv()
+
 NOISE_MAPS_URLS = {
-    "airports": "https://noise.discomap.eea.europa.eu/arcgis/rest/services/noiseStoryMap/NoiseContours_air_lden/ImageServer/exportImage",
-    "industry": "https://noise.discomap.eea.europa.eu/arcgis/rest/services/noiseStoryMap/NoiseContours_ind_lden/ImageServer/exportImage",
-    "highways": "https://noise.discomap.eea.europa.eu/arcgis/rest/services/noiseStoryMap/NoiseContours_road_lden/ImageServer/exportImage",
-    "railtracks": "https://noise.discomap.eea.europa.eu/arcgis/rest/services/noiseStoryMap/NoiseContours_rail_lden/ImageServer/exportImage"
+    "airports": os.getenv("API_EU_NOISE_AIRPORTS"),
+    "industry": os.getenv("API_EU_NOISE_INDUSTRY"),
+    "highways": os.getenv("API_EU_NOISE_HIGHWAYS"),
+    "railtracks": os.getenv("API_EU_NOISE_RAILWAYS")
 }
 
 PIXEL_VALUE_TO_LDEN = {

@@ -9,7 +9,7 @@ As ``windwhisper`` is being actively developed,
 it is best to install from Github using ``pip``:
 
 ```bash
-  pip install git+https://github.com/Maxbeal/noisemodel.git
+  pip install git+https://github.com/Laboratory-for-Energy-Systems-Analysis/windwhisper.git
 ```
 
 ## Usage
