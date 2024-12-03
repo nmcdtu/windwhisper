@@ -9,6 +9,7 @@ from scipy.interpolate import interp1d
 
 from .atmospheric_absorption import get_absorption_coefficient
 from .geometric_divergence import get_geometric_spread_loss
+from .ground_attenuation import calculate_ground_attenuation
 from .elevation_grid import get_elevation_grid, distances_with_elevation
 
 NOISE_MAP_RESOLUTION = 100
@@ -79,10 +80,7 @@ class NoisePropagation:
         self.wind_turbines = wind_turbines
         self.LAT, self.LON = define_bounding_box(wind_turbines)
 
-        self.elevation_grid = get_elevation_grid(
-            longitudes=self.LON.tolist(),
-            latitudes=self.LAT.tolist()
-        )
+
         self.noise_attenuation = self.calculate_noise_attenuation_terms()
 
         self.noise_level_at_wind_speeds = self.noise_map_at_wind_speeds(
@@ -208,19 +206,11 @@ class NoisePropagation:
         # calculation elevation of grid cells compared to turbines' positions
         # we do this by subtracting the elevation of each grid cell from the elevation of the turbines
 
-        self.relative_elevations = xr.DataArray(
-            data=np.zeros((self.LAT.shape[0], self.LON.shape[0], len(positions))),
-            dims=("lat", "lon", "turbine"),
-            coords={"lat": self.LAT, "lon": self.LON, "turbine": list(self.wind_turbines.keys())}
-        )
-        for turbine, position in enumerate(positions):
-            self.relative_elevations.values[:, :, turbine] = self.elevation_grid.values - self.elevation_grid.interp(coords={"lat": position[0], "lon": position[1]}).values
-
-        euclidian_distance = distances_with_elevation(self.haversine_distances, self.relative_elevations)
-        self.euclidian_distance = xr.DataArray(
-            data=euclidian_distance,
-            dims=("lat", "lon", "turbine"),
-            coords={"lat": self.LAT, "lon": self.LON, "turbine": list(self.wind_turbines.keys())}
+        self.elevation_grid, self.relative_elevations, self.euclidian_distances = calculate_ground_attenuation(
+            self.haversine_distances,
+            self.LON,
+            self.LAT,
+            self.wind_turbines
         )
 
 

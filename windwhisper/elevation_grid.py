@@ -27,8 +27,6 @@ def get_elevation_grid(longitudes: np.array, latitudes: np.array) -> DataArray |
     min_lon, max_lon = longitudes[0], longitudes[-1]
     min_lat, max_lat = latitudes[0], latitudes[-1]
 
-    print(f"Bounding box: {min_lon, max_lon, min_lat, max_lat}")
-
     # sample 10 points along the bounding box
     lon_step = (max_lon - min_lon) / MAX_SAMPLING_POINTS
     lat_step = (max_lat - min_lat) / MAX_SAMPLING_POINTS
