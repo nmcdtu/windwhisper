@@ -4,27 +4,6 @@ from .ambient_noise import get_ambient_noise_levels
 from .settlement import get_wsf_map_preview
 from haversine import haversine, Unit
 
-def create_bounding_box(noise_map):
-    """
-    Create a bounding box for the given noise map.
-
-    :param noise_map: A DataArray containing the noise levels.
-    :return: A tuple containing the bounding box coordinates.
-    """
-    lat_min = noise_map.lat.min().values.item(0)
-    lat_max = noise_map.lat.max().values.item(0)
-    lon_min = noise_map.lon.min().values.item(0)
-    lon_max = noise_map.lon.max().values.item(0)
-
-    # print bounding box dimensions in meters
-    print(f"Bounding box dimensions: {haversine((lat_min, lon_min), (lat_max, lon_min), Unit.METERS)}m x {haversine((lat_min, lon_min), (lat_min, lon_max), Unit.METERS)}m")
-
-    return {
-        "lat_min": lat_min,
-        "lat_max": lat_max,
-        "lon_min": lon_min,
-        "lon_max": lon_max
-    }
 
 class NoiseAnalysis:
     """
@@ -40,20 +19,19 @@ class NoiseAnalysis:
         self.noise_map = noise_map
         self.wind_turbines = wind_turbines
         self.lden_map = self.compute_lden()
-        self.bbox = create_bounding_box(self.lden_map)
         self.ambient_noise_map = get_ambient_noise_levels(
-            lon_min=self.bbox["lon_min"],
-            lon_max=self.bbox["lon_max"],
-            lat_min=self.bbox["lat_min"],
-            lat_max=self.bbox["lat_max"]
+            lon_min=self.noise_map.hourly_noise_levels.coords["lon"].min(),
+            lon_max=self.noise_map.hourly_noise_levels.coords["lon"].max(),
+            lat_min=self.noise_map.hourly_noise_levels.coords["lat"].min(),
+            lat_max=self.noise_map.hourly_noise_levels.coords["lat"].max()
         )
 
         self.settlement_map = get_wsf_map_preview(
             bbox=(
-                self.bbox["lon_min"],
-                self.bbox["lat_min"],
-                self.bbox["lon_max"],
-                self.bbox["lat_max"]
+                self.noise_map.hourly_noise_levels.coords["lon"].min(),
+                self.noise_map.hourly_noise_levels.coords["lat"].min(),
+                self.noise_map.hourly_noise_levels.coords["lon"].max(),
+                self.noise_map.hourly_noise_levels.coords["lat"].max()
             ),
         )
 

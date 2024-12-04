@@ -81,7 +81,7 @@ class NoisePropagation:
         self.LAT, self.LON = define_bounding_box(wind_turbines)
 
 
-        self.noise_attenuation = self.calculate_noise_attenuation_terms()
+        self.calculate_noise_attenuation_terms()
 
         self.noise_level_at_wind_speeds = self.noise_map_at_wind_speeds(
             np.vstack(
@@ -153,10 +153,26 @@ class NoisePropagation:
             np.ndarray: A 2D array representing the noise map.
         """
 
-        intensity_distance = noise - self.noise_attenuation[..., None]
+        total_attenuation = (
+                self.noise_attenuation.distance_attenuation +
+                self.noise_attenuation.atmospheric_absorption
+        )
 
-        # dB at distance
-        Z = 10 * np.log10((10 ** (intensity_distance / 10)).sum(axis=2))
+        if "ground_attenuation" in self.noise_attenuation.data_vars:
+            total_attenuation += self.noise_attenuation.ground_attenuation
+
+        # replace NaN values with 0
+        total_attenuation = total_attenuation.fillna(0)
+
+        attenuated_noise = noise - total_attenuation.values[..., None, None]
+        attenuated_noise = np.clip(attenuated_noise, a_min=0, a_max=None)
+
+        # apply obstacle attenuation
+        if "obstacle_attenuation" in self.noise_attenuation.data_vars:
+            attenuated_noise *= self.noise_attenuation.obstacle_attenuation.values[..., None, None]
+
+        # we need to sum the noise levels along the turbine axis
+        Z = 10 * np.log10((10 ** (attenuated_noise / 10)).sum(axis=2))
 
         # create xarray to store Z
         Z = xr.DataArray(
@@ -169,7 +185,7 @@ class NoisePropagation:
 
         return Z
 
-    def calculate_noise_attenuation_terms(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def calculate_noise_attenuation_terms(self):
         """
         Calculate the noise attenuation due to:
         * distance
@@ -192,29 +208,46 @@ class NoisePropagation:
         ).reshape(self.LAT.shape[0], self.LAT.shape[0], len(positions))
 
         # Calculate the geometric spreading loss, according to ISO 9613-2
-        geometric_spreading_loss = get_geometric_spread_loss(self.haversine_distances)
+        distance_attenuation = get_geometric_spread_loss(self.haversine_distances)
+        # pick the minimum value along the turbine axis
+        distance_attenuation = np.min(distance_attenuation, axis=-1)
 
         # Calculate the atmospheric absorption loss, according to ISO 9613-2
-        atmospheric_absorption_loss = (get_absorption_coefficient(
+        atmospheric_absorption = (get_absorption_coefficient(
             self.temperature,
             self.humidity
         ) * self.haversine_distances) / 1000
 
-        # add both losses
-        noise_attenuation_over_distance = geometric_spreading_loss + atmospheric_absorption_loss
+        # pick the minimum value along the turbine axis
+        atmospheric_absorption = np.min(atmospheric_absorption, axis=-1)
 
         # calculation elevation of grid cells compared to turbines' positions
         # we do this by subtracting the elevation of each grid cell from the elevation of the turbines
-
-        self.elevation_grid, self.relative_elevations, self.euclidian_distances = calculate_ground_attenuation(
+        self.elevation_grid, ground_attenuation, obstacle_attenuation = calculate_ground_attenuation(
             self.haversine_distances,
             self.LON,
             self.LAT,
             self.wind_turbines
         )
 
+        data_vars = {}
+        if ground_attenuation is not None:
+            data_vars["ground_attenuation"] = (["lat", "lon"], ground_attenuation.data)
+        if obstacle_attenuation is not None:
+            data_vars["obstacle_attenuation"] = (["lat", "lon"], obstacle_attenuation.data)
+        if distance_attenuation is not None:
+            data_vars["distance_attenuation"] = (["lat", "lon"], distance_attenuation)
+        if atmospheric_absorption is not None:
+            data_vars["atmospheric_absorption"] = (["lat", "lon"], atmospheric_absorption)
 
-        return noise_attenuation_over_distance
+        # Create an xarray Dataset
+        self.noise_attenuation = xr.Dataset(
+            data_vars,
+            coords={
+                "lat": self.LAT,
+                "lon": self.LON,
+            },
+        )
 
     def plot_noise_map(self, dimension: str = "wind_speed"):
         """

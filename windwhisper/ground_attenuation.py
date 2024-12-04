@@ -26,6 +26,9 @@ def calculate_ground_attenuation(haversine_distances, longitudes, latitudes, win
         latitudes=latitudes
     )
 
+    if elevation_grid is None:
+        return None, None, None
+
     relative_elevations = xr.DataArray(
         data=np.zeros((len(latitudes), len(longitudes), len(wind_turbines))),
         dims=("lat", "lon", "turbine"),
@@ -43,89 +46,97 @@ def calculate_ground_attenuation(haversine_distances, longitudes, latitudes, win
         coords={"lat": latitudes, "lon": longitudes, "turbine": list(wind_turbines.keys())}
     )
 
-    # elevated distance is the distance between
-    # the source and receiver, considering their
-    # respective elevations.
-
-    for longitude in longitudes:
-        for latitude in latitudes:
-            for turbine, specs in wind_turbines.items():
-                source_position = (latitude, longitude)
-                receiver_position = specs["position"]
-                source_elevation = elevation_grid.interp(coords={"lat": latitude, "lon": longitude}).values.item(0)
-                receiver_elevation = elevation_grid.interp(coords={"lat": receiver_position[0], "lon": receiver_position[1]}).values.item(0)
-                elevated_distance = np.sqrt(haversine(source_position, receiver_position, unit=Unit.METERS) ** 2 + (source_elevation - receiver_elevation) ** 2)
-                euclidian_distances.loc[dict(lat=latitude, lon=longitude, turbine=turbine)] = elevated_distance
-                # path between source and receiver
-                path =
-                # calculate ground profile of the path between source and receiver
-                ground_area_profile =
-
-
-    # h_m in ISO 9613-2:2024 is the mean height of the ground profile
-    #mean_height = ground_area_profile / elevated_distance
-    #ground_attenuation = 4.8 - (2 * mean_height / distance) * (17 + (300 / distance))
-
-    return elevation_grid, relative_elevations, euclidian_distances
-
-
-
-
-
-def create_elevation_mask(source_coord, grid_coords, elevation_data):
-    """
-    Create a mask that disables coordinates blocked by elevation changes.
-
-    Parameters:
-        source_coord (tuple): Coordinates of the noise source (lon, lat).
-        grid_coords (tuple): Tuple of 1D arrays representing the grid (lon_array, lat_array).
-        elevation_data (2D array): Elevation data corresponding to the grid.
-
-    Returns:
-        mask (2D array): Mask with 1 where noise can propagate, 0 where it is blocked.
-    """
-    lon_array, lat_array = grid_coords
-    source_lon, source_lat = source_coord
-
-    # Initialize the mask with ones (everything unblocked)
-    mask = np.ones_like(elevation_data, dtype=int)
-
     # Create an interpolator for the elevation data
-    interpolator = RegularGridInterpolator((lat_array, lon_array), elevation_data)
+    interpolator = RegularGridInterpolator(
+        (latitudes, longitudes),
+        elevation_grid.values
+    )
 
-    # Source elevation
-    source_elevation = interpolator([source_lat, source_lon])
+    ground_attenuation = xr.DataArray(
+        data=np.zeros((len(latitudes), len(longitudes), len(wind_turbines))),
+        dims=("lat", "lon", "turbine"),
+        coords={"lat": latitudes, "lon": longitudes, "turbine": list(wind_turbines.keys())}
+    )
 
-    # Iterate over each grid cell
-    for i, lat in enumerate(lat_array):
-        for j, lon in enumerate(lon_array):
-            # Skip the source point itself
-            if (lon, lat) == source_coord:
-                continue
+    obstacles_attenuation = xr.DataArray(
+        data=np.ones((len(latitudes), len(longitudes), len(wind_turbines))),
+        dims=("lat", "lon", "turbine"),
+        coords={"lat": latitudes, "lon": longitudes, "turbine": list(wind_turbines.keys())}
+    )
 
-            # Receiver elevation
-            receiver_elevation = elevation_data[i, j]
+    for turbine, specs in wind_turbines.items():
+        source_lat, source_lon = specs["position"]
+        # Source elevation
+        source_elevation = interpolator([source_lat, source_lon])
 
-            # Interpolate along the path from source to receiver
-            num_points = 100  # Number of points to sample along the path
-            lats = np.linspace(source_lat, lat, num_points)
-            lons = np.linspace(source_lon, lon, num_points)
-            path_coords = np.column_stack((lats, lons))
+        # Iterate over each grid cell
+        for i, lat in enumerate(latitudes):
+            for j, lon in enumerate(longitudes):
+                # Skip the source point itself
+                if (lon, lat) == (source_lon, source_lat):
+                    continue
 
-            # Get elevations along the path
-            path_elevations = interpolator(path_coords)
+                # also, skip if that coordinate has already been calculated
+                if ground_attenuation.sel(lat=lat, lon=lon, turbine=turbine) != 0:
+                    continue
 
-            # Check if any point along the path is higher than both the source and receiver
-            if np.any(path_elevations > max(source_elevation, receiver_elevation)):
-                mask[i, j] = 0  # Blocked
+                # Receiver elevation
+                receiver_elevation = elevation_grid.sel(
+                    lat=lat, lon=lon
+                )
+                path_latitudes = np.linspace(source_lat, lat, 100)
+                path_longitudes = np.linspace(source_lon, lon, 100)
+                path_coords = np.column_stack((path_latitudes, path_longitudes))
 
-    return mask
+                # Get elevations along the path (ground profile)
+                path_elevations = interpolator(path_coords)
 
+                # calculate elevation along a straight line between source and receiver
+                straight_elevation = np.squeeze(np.linspace(source_elevation, receiver_elevation, 100))
 
-# Example usage
-lon_array = np.linspace(-10, 10, 100)  # Example longitude grid
-lat_array = np.linspace(-10, 10, 100)  # Example latitude grid
-elevation_data = np.random.rand(100, 100) * 100  # Example elevation data
+                # Check for obstacles
+                obstacle_mask = path_elevations > (straight_elevation + 10)  # 10 m above the straight line
+                obstacle_heights = path_elevations[obstacle_mask] - straight_elevation[obstacle_mask]
 
-source_coord = (0, 0)  # Source coordinates
-mask = create_elevation_mask(source_coord, (lon_array, lat_array), elevation_data)
+                if obstacle_heights.size > 0:
+                    # Calculate obstacle attenuation
+                    max_obstacle_height = obstacle_heights.max()
+                    obstacle_distance = np.argmax(obstacle_mask) / len(path_coords) * euclidian_distance
+
+                    # ISO 9613-2 obstacle attenuation formula
+                    obstacle_attenuation = 10 + 20 * np.log10(max_obstacle_height / obstacle_distance)
+                    obstacle_attenuation = np.clip(obstacle_attenuation, a_min=0, a_max=None)
+
+                    obstacles_attenuation.loc[dict(lat=lat, lon=lon, turbine=turbine)] = obstacle_attenuation
+
+                # calculate area between the path and the straight line
+                # term F in ISO 9613-2:2024
+                area = np.clip(
+                    np.trapz(straight_elevation - path_elevations, dx=1),
+                    a_min=0,
+                    a_max=None
+                )
+
+                # term d_g in ISO 9613-2:2024
+                euclidian_distance = euclidian_distances.sel(
+                    lat=lat, lon=lon, turbine=turbine
+                ).values.item()
+
+                # term h_m in ISO 9613-2:2024
+                mean_height = area / euclidian_distance
+
+                # term A_gr in ISO 9613-2:2024
+                attenuation = 4.8 - ((2 * mean_height)/ euclidian_distance) * (17 + (300 / euclidian_distance))
+                attenuation = np.clip(attenuation, a_min=0, a_max=None)
+                ground_attenuation.loc[dict(lat=lat, lon=lon, turbine=turbine)] = attenuation
+
+    # sum the ground attenuations over turbines dimension
+    # since those are dBs, we pick the maximum value
+    ground_attenuation = ground_attenuation.max(dim="turbine")
+
+    # sum the obstacles attenuations over turbines dimension
+    # since those are booleans (0 = unreachable by soundwaves),
+    # we pick the minimum value
+    obstacles_attenuation = obstacles_attenuation.min(dim="turbine")
+
+    return elevation_grid, ground_attenuation, obstacles_attenuation

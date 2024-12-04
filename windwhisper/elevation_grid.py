@@ -24,15 +24,15 @@ def get_elevation_grid(longitudes: np.array, latitudes: np.array) -> DataArray |
     """
 
     # determine the bounding box
-    min_lon, max_lon = longitudes[0], longitudes[-1]
-    min_lat, max_lat = latitudes[0], latitudes[-1]
+    min_lon, max_lon = min(longitudes), max(longitudes)
+    min_lat, max_lat = min(latitudes), max(latitudes)
 
     # sample 10 points along the bounding box
     lon_step = (max_lon - min_lon) / MAX_SAMPLING_POINTS
     lat_step = (max_lat - min_lat) / MAX_SAMPLING_POINTS
 
-    longitudes_ = np.arange(min_lon, max_lon, lon_step)
-    latitudes_ = np.arange(min_lat, max_lat, lat_step)
+    longitudes_ = np.arange(min_lon, max_lon + lon_step, lon_step)
+    latitudes_ = np.arange(min_lat, max_lat + lat_step, lat_step)
 
     # create a grid of latitudes and longitudes
     path = [(lat, lon) for lon in longitudes_ for lat in latitudes_]
@@ -40,8 +40,7 @@ def get_elevation_grid(longitudes: np.array, latitudes: np.array) -> DataArray |
     # get elevation data from Open Elevation API
     url = OPEN_ELEVATION_API
     for lat, lon in path:
-        url += f"{lat},{lon}|"
-
+        url += f"{lat},{lon}|"  # append the coordinates to the URL
     url = url[:-1]
 
     response = requests.get(url)
@@ -69,6 +68,9 @@ def get_elevation_grid(longitudes: np.array, latitudes: np.array) -> DataArray |
         # fill missing values with the nearest neighbor
         xr_array = xr_array.interpolate_na(method="nearest", dim="lat")
         xr_array = xr_array.interpolate_na(method="nearest", dim="lon")
+
+        # replace missing values with the mean of the surrounding values
+        xr_array = xr_array.fillna(xr_array.mean())
 
         return xr_array
 
