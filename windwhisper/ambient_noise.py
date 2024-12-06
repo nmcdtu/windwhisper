@@ -30,15 +30,15 @@ PIXEL_VALUE_TO_LDEN = {
     4: 70,
     5: 75,
     15: 0,
-    None: np.nan
+    None: 0
 }
 
 
-def get_noise_values(url: str, x_min, x_max, y_min, y_max) -> xr.DataArray | None:
+def get_noise_values(url: str, x_min, x_max, y_min, y_max, resolution) -> xr.DataArray | None:
     params = {
         "bbox": f"{x_min},{y_min},{x_max},{y_max}",
         "bboxSR": "3035",
-        "size": "800,600",  # Output resolution
+        "size": f"{resolution[1]},{resolution[0]}",  # Width, Height
         "format": "tiff",  # Request GeoTIFF
         "f": "image"  # Response type
     }
@@ -52,6 +52,7 @@ def get_noise_values(url: str, x_min, x_max, y_min, y_max) -> xr.DataArray | Non
             with memfile.open() as dataset:
                 # Read the first band of data
                 data = dataset.read(1)
+                data = np.nan_to_num(data, nan=15)  # Replace NaN values with 15
                 data = np.vectorize(PIXEL_VALUE_TO_LDEN.get)(data)
                 return data
     else:
@@ -75,7 +76,7 @@ def combine_noise_levels(noise_layers: list) -> np.ndarray:
     return combined
 
 
-def get_ambient_noise_levels(lon_min: float, lon_max: float, lat_min: float, lat_max: float) -> xr.DataArray | None:
+def get_ambient_noise_levels(latitudes, longitudes, resolution: tuple) -> xr.DataArray | None:
     """
     Get the ambient noise levels for a given location.
     :param lon_min: Minimum longitude of the bounding box.
@@ -86,11 +87,11 @@ def get_ambient_noise_levels(lon_min: float, lon_max: float, lat_min: float, lat
     """
 
     noise_layers = []
-    x_min, y_min = translate_4326_to_3035(lon_min, lat_min)
-    x_max, y_max = translate_4326_to_3035(lon_max, lat_max)
+    x_min, y_min = translate_4326_to_3035(longitudes.min(), latitudes.min())
+    x_max, y_max = translate_4326_to_3035(longitudes.max(), latitudes.max())
 
     for t, url in NOISE_MAPS_URLS.items():
-        layer = get_noise_values(url, x_min, x_max, y_min, y_max)
+        layer = get_noise_values(url, x_min, x_max, y_min, y_max, resolution)
 
         layer = np.where(layer == None, 0, layer)  # Convert None to 0
         layer = layer.astype(float)
@@ -101,43 +102,38 @@ def get_ambient_noise_levels(lon_min: float, lon_max: float, lat_min: float, lat
     if noise_layers:
         data = combine_noise_levels(noise_layers)
 
-        # Example usage with combined_noise and bounding box
-        resolution = (500 / 800)  # Calculate pixel size (bbox width divided by image width)
         return create_xarray_from_raster(
             data,
-            x_min=x_min,
-            y_min=y_min,
-            x_max=x_max,
-            y_max=y_max,
+            x_min, x_max, y_min, y_max
         )
 
     else:
         return None
 
 
-def create_xarray_from_raster(data, x_min, y_min, x_max, y_max):
+def create_xarray_from_raster(data, x_min, x_max, y_min, y_max):
     """
     Create an xarray.DataArray from raster data and transform coordinates to EPSG:4326.
 
-    Parameters:
-        data (numpy.ndarray): The 2D array of raster data.
-        x_min (float): Minimum X coordinate in EPSG:3035.
-        y_min (float): Minimum Y coordinate in EPSG:3035.
-        x_max (float): Maximum X coordinate in EPSG:3035.
-        y_max (float): Maximum Y coordinate in EPSG:3035.
-        resolution (float): Pixel resolution in the same units as x/y (e.g., meters).
-
-    Returns:
-        xarray.DataArray: Raster data as an xarray with longitude and latitude coordinates in EPSG:4326.
+    :param data: The raster data as a numpy array.
+    :param lon_min: Minimum longitude of the bounding box.
+    :param lon_max: Maximum longitude of the bounding box.
+    :param lat_min: Minimum latitude of the bounding box.
+    :param lat_max: Maximum latitude of the bounding box.
+    :return: Raster data as an xarray with longitude and latitude coordinates in EPSG:4326.
     """
+
+    print(data.shape)
     # Calculate the original x and y coordinates in EPSG:3035
     x_coords_3035 = np.linspace(x_min, x_max, data.shape[1])  # Columns
-    y_coords_3035 = np.linspace(y_max, y_min, data.shape[0])  # Rows (reverse to match raster grid)
+    y_coords_3035 = np.linspace(y_max, y_min, data.shape[0])
+
 
     # Transform coordinates to EPSG:4326
     transformer = Transformer.from_crs("EPSG:3035", "EPSG:4326", always_xy=True)
     lon_coords, lat_coords = np.meshgrid(x_coords_3035, y_coords_3035)
     lon_coords, lat_coords = transformer.transform(lon_coords, lat_coords)
+
 
     # Create the DataArray
     raster_da = xr.DataArray(

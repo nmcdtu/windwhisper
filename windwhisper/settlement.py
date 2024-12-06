@@ -14,20 +14,20 @@ load_dotenv()
 WMS_BASE_URL = os.getenv("API_WSF")
 
 # Function to query WMS for a map preview
-def get_wsf_map_preview(bbox, layers="WSF_2019", resolution=0.01):
+def get_wsf_map_preview(lon_min, lon_max, lat_min, lat_max, resolution, layers="WSF_2019"):
+    """
+    Fetch a map preview of the World Settlement Footprint (WSF) dataset.
+    """
 
-    # Calculate width and height based on bbox dimensions and resolution
-    lon_diff = bbox[2] - bbox[0]  # max_lon - min_lon
-    lat_diff = bbox[3] - bbox[1]  # max_lat - min_lat
+    width, height = resolution[1], resolution[0]
 
-    width = int(lon_diff / resolution)
-    height = int(lat_diff / resolution)
+    bbox=f"{lon_min},{lat_min},{lon_max},{lat_max}"
 
     params = {
         "service": "WMS",
         "request": "GetMap",
         "layers": layers,
-        "bbox": ",".join(map(str, bbox)),
+        "bbox": bbox,
         "width": width,
         "height": height,
         "srs": "EPSG:4326",
@@ -45,20 +45,20 @@ def get_wsf_map_preview(bbox, layers="WSF_2019", resolution=0.01):
                 data = (data > 0).astype("uint8")  # Convert to binary (1 = settlement, 0 = no settlement)
 
                 # Generate latitude and longitude arrays based on bbox
-                lat = np.linspace(bbox[1], bbox[3], height)  # Y-axis: min_lat to max_lat
-                lon = np.linspace(bbox[0], bbox[2], width)  # X-axis: min_lon to max_lon
+                lat = np.linspace(lat_min, lat_max, height)
+                lon = np.linspace(lon_min, lon_max, width)
 
                 return xr.DataArray(
                     data,
                     dims=["lat", "lon", ],
                     coords={
-                        "lat": lat[::-1],
+                        "lat": lat,
                         "lon": lon,
                     },
                     attrs={
                         "crs": "EPSG:4326",
                         "long_name": "World Settlement Footprint",
                         "units": "boolean",
-                        "bbox": bbox,
+                        "bbox": f"{lon_min},{lat_min},{lon_max},{lat_max}",
                     }
                 )

@@ -1,18 +1,20 @@
 import numpy as np
 from haversine import haversine, Unit
-import folium
 import ipywidgets as widgets
-from IPython.display import display
 import matplotlib.pyplot as plt
 import xarray as xr
 from scipy.interpolate import interp1d
+from dotenv import load_dotenv
+import os
 
 from .atmospheric_absorption import get_absorption_coefficient
 from .geometric_divergence import get_geometric_spread_loss
 from .ground_attenuation import calculate_ground_attenuation
-from .elevation_grid import get_elevation_grid, distances_with_elevation
 
-NOISE_MAP_RESOLUTION = 100
+load_dotenv()
+
+NOISE_MAP_RESOLUTION = int(os.getenv("NOISE_MAP_RESOLUTION", 100))
+NOISE_MAP_MARGIN = float(os.getenv("NOISE_MAP_MARGIN", 0.02))
 
 def define_bounding_box(wind_turbines: dict) -> tuple:
     """
@@ -39,15 +41,12 @@ def define_bounding_box(wind_turbines: dict) -> tuple:
         turbine["position"][1] for turbine in wind_turbines.values()
     )
 
-    # add a 500 meters margin to the bounding box
-    margin = 0.01
-
     # Adjust the map size to include observation points
 
-    lat_min -= margin
-    lat_max += margin
-    lon_min -= margin
-    lon_max += margin
+    lat_min -= NOISE_MAP_MARGIN
+    lat_max += NOISE_MAP_MARGIN
+    lon_min -= NOISE_MAP_MARGIN
+    lon_max += NOISE_MAP_MARGIN
 
     lon_array = np.linspace(lon_min, lon_max, NOISE_MAP_RESOLUTION)
     lat_array = np.linspace(lat_min, lat_max, NOISE_MAP_RESOLUTION)
@@ -223,12 +222,14 @@ class NoisePropagation:
 
         # calculation elevation of grid cells compared to turbines' positions
         # we do this by subtracting the elevation of each grid cell from the elevation of the turbines
-        self.elevation_grid, ground_attenuation, obstacle_attenuation = calculate_ground_attenuation(
-            self.haversine_distances,
-            self.LON,
-            self.LAT,
-            self.wind_turbines
-        )
+        # self.elevation_grid, ground_attenuation, obstacle_attenuation = calculate_ground_attenuation(
+        #     self.haversine_distances,
+        #     self.LON,
+        #     self.LAT,
+        #     self.wind_turbines
+        # )
+
+        self.elevation_grid, ground_attenuation, obstacle_attenuation = None, None, None
 
         data_vars = {}
         if ground_attenuation is not None:
