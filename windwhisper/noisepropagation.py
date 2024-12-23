@@ -222,14 +222,12 @@ class NoisePropagation:
 
         # calculation elevation of grid cells compared to turbines' positions
         # we do this by subtracting the elevation of each grid cell from the elevation of the turbines
-        # self.elevation_grid, ground_attenuation, obstacle_attenuation = calculate_ground_attenuation(
-        #     self.haversine_distances,
-        #     self.LON,
-        #     self.LAT,
-        #     self.wind_turbines
-        # )
-
-        self.elevation_grid, ground_attenuation, obstacle_attenuation = None, None, None
+        self.elevation_grid, ground_attenuation, obstacle_attenuation = calculate_ground_attenuation(
+            self.haversine_distances,
+            self.LON,
+            self.LAT,
+            self.wind_turbines
+        )
 
         data_vars = {}
         if ground_attenuation is not None:

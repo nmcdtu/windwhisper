@@ -123,7 +123,6 @@ def create_xarray_from_raster(data, x_min, x_max, y_min, y_max):
     :return: Raster data as an xarray with longitude and latitude coordinates in EPSG:4326.
     """
 
-    print(data.shape)
     # Calculate the original x and y coordinates in EPSG:3035
     x_coords_3035 = np.linspace(x_min, x_max, data.shape[1])  # Columns
     y_coords_3035 = np.linspace(y_max, y_min, data.shape[0])

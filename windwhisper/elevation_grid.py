@@ -11,7 +11,7 @@ from xarray import DataArray
 
 load_dotenv()
 
-OPEN_ELEVATION_API = os.getenv("API_OPEN_ELEVATION")
+OPEN_ELEVATION_API = os.getenv("API_ELEVATION")
 MAX_SAMPLING_POINTS = int(os.getenv("MAX_SAMPLING_POINTS"))
 
 def get_elevation_grid(longitudes: np.array, latitudes: np.array) -> DataArray | None:

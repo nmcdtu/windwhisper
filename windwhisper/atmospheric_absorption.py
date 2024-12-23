@@ -2,7 +2,6 @@
 This module contains functions to calculate the atmospheric absorption of sound.
 """
 
-import numpy as np
 from . import DATA_DIR
 import yaml
 
