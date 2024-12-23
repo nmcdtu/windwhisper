@@ -135,7 +135,7 @@ class NoiseAnalysis:
         )
         merged_dataset["net"].attrs["description"] = "Net contribution of LDEN noise levels in dB"
 
-        mask = (self.ambient_noise_map.values < 50) & (noise_combined >= 50)
+        mask = (self.ambient_noise_map.values < 55) & (noise_combined >= 55)
         flip = np.where(mask, noise_combined, 0)
 
         # Add the flip layer to the dataset
@@ -150,10 +150,9 @@ class NoiseAnalysis:
 
         # Add metadata for clarity
         merged_dataset["flip"].attrs["description"] = (
-            "Coordinates where ambient noise < 50 dB but combined noise > 50 dB"
+            "Coordinates where ambient noise < 55 dB but combined noise > 55 dB"
         )
         merged_dataset["flip"].attrs["datatype"] = "boolean"
-
 
         return merged_dataset
 

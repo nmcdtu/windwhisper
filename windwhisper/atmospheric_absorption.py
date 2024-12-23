@@ -27,7 +27,6 @@ def compute_weighted_absorption(absorption_coefficients):
     frequencies = list(absorption_coefficients.keys())
     a_weighting = [-26.2, -16.1, -8.6, -3.2, 0, 1.2, 1.0, -1.1]  # ISO standard corrections
 
-    # Example spectral levels (assumed, replace with your data)
     spectral_levels = [
         85,  # 63 Hz
         90,  # 125 Hz
@@ -39,8 +38,6 @@ def compute_weighted_absorption(absorption_coefficients):
         96,  # 8000 Hz
     ]
 
-    # Normalize spectral levels by the maximum (optional if not already normalized)
-    spectral_shape = [value / max(spectral_levels) for value in spectral_levels]
 
     # Compute unweighted levels by reversing A-weighting corrections
     unweighted_band_levels = [level - aw for level, aw in zip(spectral_levels, a_weighting)]

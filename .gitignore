@@ -64,3 +64,5 @@ secrets.json
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+data/training_data/*.csv

@@ -136,7 +136,7 @@ def generate_map(noise_dataset):
     contours = generate_contours(
         noise_dataset["flip"],
         levels=[50, 60, 70],
-        name="Area beyond WHO guidelines"
+        name="Area beyond EU guidelines (55 db(A))"
     )
     m.add_child(contours)
 

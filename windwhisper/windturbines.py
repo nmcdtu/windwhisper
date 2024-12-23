@@ -83,6 +83,7 @@ def train_wind_turbine_model(file_path: str = None) -> Tuple[RegressorMixin, Lis
         X, Y, test_size=0.2, random_state=42
     )
     print("Number of observations in test set:", X_test.shape[0])
+    print(f"Number of observations in training set: {X_train.shape[0]}")
 
     # Create and train the multi-output model
     model = MultiOutputRegressor(HistGradientBoostingRegressor())

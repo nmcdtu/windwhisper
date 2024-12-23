@@ -3,9 +3,6 @@ Estimate noise attenuation due to ground type, distance from the source and elev
 and receiver, according to ISO 9613-2:2024.
 """
 
-import numpy as np
-import requests
-from haversine import haversine, Unit
 import xarray as xr
 import numpy as np
 from scipy.interpolate import RegularGridInterpolator
@@ -132,7 +129,7 @@ def calculate_ground_attenuation(haversine_distances, longitudes, latitudes, win
 
     # sum the ground attenuations over turbines dimension
     # since those are dBs, we pick the maximum value
-    ground_attenuation = ground_attenuation.max(dim="turbine")
+    ground_attenuation = ground_attenuation.min(dim="turbine")
 
     # sum the obstacles attenuations over turbines dimension
     # since those are booleans (0 = unreachable by soundwaves),
