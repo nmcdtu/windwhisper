@@ -45,7 +45,8 @@ def compute_turbine_attenuation(args):
 
                 # Calculate obstacle distance
                 obstacle_distance = (
-                        np.argmax(obstacle_mask) / len(path_elevations) * euclidian_distances.values[i, j]
+                        np.argmax(obstacle_mask) / len(path_elevations)
+                        * euclidian_distances.values[i, j]
                 )
 
                 # ISO 9613-2 obstacle attenuation formula

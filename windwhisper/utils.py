@@ -1,4 +1,7 @@
 from pyproj import Transformer
+import json
+
+from . import HOME_DIR
 
 def create_bounding_box(center_x: float, center_y: float, buffer_meters: int) -> tuple:
     """
@@ -25,3 +28,12 @@ def translate_4326_to_3035(lon: float, lat: float) -> tuple:
     transformer = Transformer.from_crs("EPSG:4326", "EPSG:3035", always_xy=True)
 
     return transformer.transform(lon, lat)
+
+
+def load_secret():
+    try:
+        with open(f"{HOME_DIR}/secret.json") as f:
+            data = json.load(f)
+            return data["google_api_key"]
+    except Exception as e:
+        print("Error: ", e)

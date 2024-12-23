@@ -12,6 +12,7 @@ __all__ = (
     "NoiseAnalysis",
 )
 
+HOME_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
 

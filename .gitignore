@@ -66,3 +66,4 @@ ehthumbs.db
 Thumbs.db
 
 data/training_data/*.csv
+secret.json
