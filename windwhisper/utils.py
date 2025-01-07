@@ -36,4 +36,4 @@ def load_secret():
             data = json.load(f)
             return data["google_api_key"]
     except Exception as e:
-        print("Error: ", e)
+        return None

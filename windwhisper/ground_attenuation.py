@@ -18,7 +18,7 @@ def compute_turbine_attenuation(args):
     source_elevation = interpolator([source_lat, source_lon])
 
     ground_attenuation = np.zeros((len(latitudes), len(longitudes)))
-    obstacles_attenuation = np.ones((len(latitudes), len(longitudes)))
+    obstacles_attenuation = np.zeros((len(latitudes), len(longitudes)))
 
     for i, lat in enumerate(latitudes):
         for j, lon in enumerate(longitudes):
@@ -34,10 +34,11 @@ def compute_turbine_attenuation(args):
 
             # Elevation profile along the path
             path_elevations = interpolator(path_coords)
-            straight_elevation = np.linspace(source_elevation, receiver_elevation, path_elevations.size)
+            straight_elevation = np.squeeze(np.linspace(source_elevation, receiver_elevation, path_elevations.size))
 
             # Obstacle detection
             obstacle_mask = path_elevations > (straight_elevation + 10)  # Boolean mask of obstacles
+
             if np.any(obstacle_mask):  # Check if there are any obstacles
                 # Indexing is now safe because all arrays are 1D
                 obstacle_heights = path_elevations[obstacle_mask] - straight_elevation[obstacle_mask]
@@ -84,17 +85,27 @@ def calculate_ground_attenuation(haversine_distances, longitudes, latitudes, win
     # Precompute relative elevations
     relative_elevations = elevation_grid - xr.concat(
         [
-            elevation_grid.interp(coords={"lat": specs["position"][0], "lon": specs["position"][1]})
-            for specs in wind_turbines.values()
+            elevation_grid.interp(
+                coords={"lat": specs["position"][0], "lon": specs["position"][1]}
+            ).expand_dims(dim={"turbine": [turbine_name]})
+            for turbine_name, specs in wind_turbines.items()
         ],
-        dim="turbine"
+        dim="turbine",
     )
 
     euclidian_distances = distances_with_elevation(haversine_distances, relative_elevations)
 
     # Prepare arguments for parallel execution
     args = [
-        (turbine, specs, latitudes, longitudes, elevation_grid, interpolator, euclidian_distances)
+        (
+            turbine,
+            specs,
+            latitudes,
+            longitudes,
+            elevation_grid,
+            interpolator,
+            euclidian_distances.sel(turbine=turbine)
+        )
         for turbine, specs in wind_turbines.items()
     ]
 

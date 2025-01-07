@@ -11,7 +11,7 @@ color_map = {
         20: "darkblue",
         30: "green",
         40: "yellow",
-        50: "orange",
+        55: "orange",
         60: "red",
         70: "purple",
     }
@@ -44,7 +44,7 @@ def generate_contours(data, levels, name="Noise Contours"):
                 geojson_features.append(
                     geojson.Feature(
                         geometry=mapping(LineString(coords)),
-                        properties={"level": c.levels[i], "color": color_map[c.levels[i]]}
+                        properties={"level": c.levels[int(i)], "color": color_map[c.levels[int(i)]]}
                     )
                 )
 
@@ -107,35 +107,35 @@ def generate_map(noise_dataset):
     # # Add the contours to the map
     contours = generate_contours(
         noise_dataset["combined"],
-        levels=[30, 40, 50, 60, 70],
+        levels=[30, 40, 55, 60, 70],
         name="Overall noise levels"
     )
     m.add_child(contours)
     # #
     contours = generate_contours(
         noise_dataset["wind"],
-        levels=[30, 40, 50, 60, 70],
+        levels=[20, 30, 40, 55, 60, 70],
         name="Wind turbine(s) noise levels"
     )
     m.add_child(contours)
     # #
     contours = generate_contours(
         noise_dataset["ambient"],
-        levels=[30, 40, 50, 60, 70],
+        levels=[30, 40, 55, 60, 70],
         name="Pre-existing noise levels"
     )
     m.add_child(contours)
     # #
     contours = generate_contours(
         noise_dataset["net"],
-        levels=[0, 20, 30, 40],
+        levels=[20, 30, 40],
         name="Net contribution"
     )
     m.add_child(contours)
 
     contours = generate_contours(
         noise_dataset["flip"],
-        levels=[50, 60, 70],
+        levels=[55, 60, 70],
         name="Area beyond EU guidelines (55 db(A))"
     )
     m.add_child(contours)

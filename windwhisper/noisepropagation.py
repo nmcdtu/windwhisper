@@ -74,6 +74,10 @@ class NoisePropagation:
         Initialize the NoiseMap class.
 
         """
+        self.incr_noise_att = None
+        self.noise_attenuation = None
+        self.elevation_grid = None
+        self.haversine_distances = None
         self.temperature = temperature
         self.humidity = humidity
         self.wind_turbines = wind_turbines
@@ -82,7 +86,7 @@ class NoisePropagation:
 
         self.calculate_noise_attenuation_terms()
 
-        self.noise_level_at_wind_speeds = self.noise_map_at_wind_speeds(
+        self.noise_level_at_wind_speeds = self.get_noise_emissions_vs_time_or_speed(
             np.vstack(
                 [
                     specs["noise_vs_wind_speed"].values
@@ -95,7 +99,7 @@ class NoisePropagation:
 
         self.calculate_hourly_noise_levels()
 
-        self.hourly_noise_levels = self.noise_map_at_wind_speeds(
+        self.hourly_noise_levels = self.get_noise_emissions_vs_time_or_speed(
             np.vstack(
                 [
                     specs["noise_per_hour"].values
@@ -105,6 +109,10 @@ class NoisePropagation:
             coord_name="hour",
             coord_value=[specs["noise_per_hour"].coords["hour"].values for specs in self.wind_turbines.values()][0],
         )
+
+        self.lden_map = self.compute_lden()
+
+        self.calculate_incremental_noise_attenuation()
 
 
     def calculate_hourly_noise_levels(self):
@@ -140,8 +148,90 @@ class NoisePropagation:
             # Add the noise levels to the wind turbine specs
             turbine_specs["noise_per_hour"] = noise_per_hour
 
+    def compute_lden(self):
+        """
+        Compute Lden values from self.noise_level_at_mean_wind_speed and update the DataArray.
 
-    def noise_map_at_wind_speeds(self, noise, coord_name, coord_value) -> xr.DataArray:
+        Returns:
+            xr.DataArray: Updated DataArray containing Lden values.
+        """
+        # Assuming the noise map has a 'time' coordinate for hourly noise levels
+        noise = self.hourly_noise_levels  # Noise levels as DataArray
+
+        # Define time ranges for day, evening, and night
+        day_mask = (noise["hour"] >= 7) & (noise["hour"] < 19)  # 07:00–19:00
+        evening_mask = (noise["hour"] >= 19) & (noise["hour"] < 23)  # 19:00–23:00
+        night_mask = (noise["hour"] >= 23) | (noise["hour"] < 7)  # 23:00–07:00
+
+        # Convert noise levels to linear scale and apply weightings
+        day_linear = 10 ** (noise.where(day_mask).mean(dim="hour") / 10) * 12
+        evening_linear = 10 ** ((noise.where(evening_mask).mean(dim="hour") + 5) / 10) * 4
+        night_linear = 10 ** ((noise.where(night_mask).mean(dim="hour") + 10) / 10) * 8
+
+        # Combine weighted intensities and compute Lden
+        total_linear = (day_linear + evening_linear + night_linear) / 24
+        lden = 10 * np.log10(total_linear)
+
+        lden_map = noise.sel(hour=0).copy(data=lden)
+        lden_map.attrs["long_name"] = "Lden Noise Levels"
+        lden_map.attrs["units"] = "dB"
+
+        return lden_map
+
+    def calculate_incremental_noise_attenuation(self):
+        """
+        Calculates an Xarray Dataset that incrementally applies attenuation terms
+        to the noise emission and stores it as an attribute in the class.
+        """
+        attenuation_terms = [
+            "distance_attenuation",
+            "atmospheric_absorption",
+            "ground_attenuation",
+            "obstacle_attenuation",
+        ]
+
+        short_names = {
+            "distance_attenuation": "distance",
+            "atmospheric_absorption": "atmospheric",
+            "ground_attenuation": "ground",
+            "obstacle_attenuation": "obstacle",
+        }
+
+        # Start with the initial noise level in linear scale
+        incremental_noise_linear = 10 ** (self.lden_map / 10)
+
+        # Create a dataset to store the incremental noise levels
+        attenuation_dataset = xr.Dataset({"noise": self.lden_map.copy()})
+
+        # Initialize cumulative attenuation in linear scale
+        cumulative_attenuation_linear = xr.ones_like(incremental_noise_linear)
+
+        for t, term in enumerate(attenuation_terms):
+            if term in self.noise_attenuation.data_vars:
+                label = "noise-" + "-".join([short_names[x] for x in attenuation_terms[: t + 1]])
+
+                # Convert the current attenuation term to linear scale
+                current_attenuation_linear = 10 ** (-self.noise_attenuation[term] / 10)
+
+                # Combine the current attenuation with the cumulative attenuation
+                cumulative_attenuation_linear *= current_attenuation_linear
+
+                # Apply cumulative attenuation to the original noise
+                attenuated_noise_linear = incremental_noise_linear * cumulative_attenuation_linear
+
+                # Convert the result back to dB
+                incremental_noise = 10 * np.log10(attenuated_noise_linear.clip(1e-10))  # Avoid log(0)
+
+                # clip the noise level to 0 dB
+                incremental_noise = np.clip(incremental_noise, a_min=0, a_max=None)
+
+                # Add the resulting noise level to the dataset
+                attenuation_dataset[label] = incremental_noise
+
+        # Store the dataset as a class attribute
+        self.incr_noise_att = attenuation_dataset
+
+    def get_noise_emissions_vs_time_or_speed(self, noise, coord_name, coord_value) -> xr.DataArray:
         """
         Generates a noise map for the wind turbines
         and observation points for each wind speed level.
@@ -152,26 +242,10 @@ class NoisePropagation:
             np.ndarray: A 2D array representing the noise map.
         """
 
-        total_attenuation = (
-                self.noise_attenuation.distance_attenuation +
-                self.noise_attenuation.atmospheric_absorption
-        )
-
-        if "ground_attenuation" in self.noise_attenuation.data_vars:
-            total_attenuation += self.noise_attenuation.ground_attenuation
-
-        # replace NaN values with 0
-        total_attenuation = total_attenuation.fillna(0)
-
-        attenuated_noise = noise - total_attenuation.values[..., None, None]
-        attenuated_noise = np.clip(attenuated_noise, a_min=0, a_max=None)
-
-        # apply obstacle attenuation
-        if "obstacle_attenuation" in self.noise_attenuation.data_vars:
-            attenuated_noise *= self.noise_attenuation.obstacle_attenuation.values[..., None, None]
-
         # we need to sum the noise levels along the turbine axis
-        Z = 10 * np.log10((10 ** (attenuated_noise / 10)).sum(axis=2))
+        Z = 10 * np.log10((10 ** (noise / 10)).sum(axis=0))
+        # resize Z to match the grid
+        Z = np.tile(Z, (self.LAT.shape[0], self.LON.shape[0], 1))
 
         # create xarray to store Z
         Z = xr.DataArray(

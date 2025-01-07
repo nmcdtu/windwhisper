@@ -10,24 +10,23 @@ class NoiseAnalysis:
     This class handles the basic functionalities related to noise data analysis.
 
     :ivar wind_turbines: A list of dictionaries containing the wind turbine data.
-    :ivar noise_map: A NoiseMap object containing the noise data.
-    :ivar alpha: Air absorption coefficient.
+    :ivar noise_propagation: A NoiseMap object containing the noise data.
 
     """
 
-    def __init__(self, noise_map, wind_turbines):
-        self.noise_map = noise_map
+    def __init__(self, noise_propagation, wind_turbines):
+        self.noise_propagation = noise_propagation
         self.wind_turbines = wind_turbines
-        self.lden_map = self.compute_lden()
+        self.lden_map = noise_propagation.lden_map
 
-        lon_min = self.noise_map.hourly_noise_levels.coords["lon"].min().values.item()
-        lon_max = self.noise_map.hourly_noise_levels.coords["lon"].max().values.item()
-        lat_min = self.noise_map.hourly_noise_levels.coords["lat"].min().values.item()
-        lat_max = self.noise_map.hourly_noise_levels.coords["lat"].max().values.item()
+        lon_min = self.noise_propagation.hourly_noise_levels.coords["lon"].min().values.item()
+        lon_max = self.noise_propagation.hourly_noise_levels.coords["lon"].max().values.item()
+        lat_min = self.noise_propagation.hourly_noise_levels.coords["lat"].min().values.item()
+        lat_max = self.noise_propagation.hourly_noise_levels.coords["lat"].max().values.item()
 
         self.ambient_noise_map = get_ambient_noise_levels(
-            latitudes=self.noise_map.LAT,
-            longitudes=self.noise_map.LON,
+            latitudes=self.noise_propagation.LAT,
+            longitudes=self.noise_propagation.LON,
             resolution=self.lden_map.shape
         )
 
@@ -41,35 +40,6 @@ class NoiseAnalysis:
 
         self.merged_map = self.merge_maps()
 
-    def compute_lden(self):
-        """
-        Compute Lden values from self.noise_level_at_mean_wind_speed and update the DataArray.
-
-        Returns:
-            xr.DataArray: Updated DataArray containing Lden values.
-        """
-        # Assuming the noise map has a 'time' coordinate for hourly noise levels
-        noise = self.noise_map.hourly_noise_levels  # Noise levels as DataArray
-
-        # Define time ranges for day, evening, and night
-        day_mask = (noise["hour"] >= 7) & (noise["hour"] < 19)  # 07:00–19:00
-        evening_mask = (noise["hour"] >= 19) & (noise["hour"] < 23)  # 19:00–23:00
-        night_mask = (noise["hour"] >= 23) | (noise["hour"] < 7)  # 23:00–07:00
-
-        # Convert noise levels to linear scale and apply weightings
-        day_linear = 10 ** (noise.where(day_mask).mean(dim="hour") / 10) * 12
-        evening_linear = 10 ** ((noise.where(evening_mask).mean(dim="hour") + 5) / 10) * 4
-        night_linear = 10 ** ((noise.where(night_mask).mean(dim="hour") + 10) / 10) * 8
-
-        # Combine weighted intensities and compute Lden
-        total_linear = (day_linear + evening_linear + night_linear) / 24
-        lden = 10 * np.log10(total_linear)
-
-        lden_map = noise.sel(hour=0).copy(data=lden)
-        lden_map.attrs["long_name"] = "Lden Noise Levels"
-        lden_map.attrs["units"] = "dB"
-
-        return lden_map
 
 
     def merge_maps(self):
@@ -85,7 +55,7 @@ class NoiseAnalysis:
             lat=lat
         ).fillna(0)
 
-        # reinterpolate the settlement map to match the shape of the lden map
+        # re-interpolate the settlement map to match the shape of the lden map
         self.settlement_map = self.settlement_map.interp(
             lon=lon,
             lat=lat
@@ -94,7 +64,7 @@ class NoiseAnalysis:
         # Combine the two datasets into a single xarray
         merged_dataset = xr.Dataset({
             "ambient": self.ambient_noise_map,
-            "wind": self.lden_map,
+            "wind": self.noise_propagation.incr_noise_att["noise-distance-atmospheric-ground-obstacle"],
             "settlement": self.settlement_map,
         })
 
@@ -102,7 +72,7 @@ class NoiseAnalysis:
         # using the logarithmic formula
         noise_combined = 10 * np.log10(
             10 ** (self.ambient_noise_map.values / 10)
-            + 10 ** (self.lden_map.values / 10)
+            + 10 ** (self.noise_propagation.incr_noise_att["noise-distance-atmospheric-ground-obstacle"].values / 10)
         )
 
         # Add the new layer to the dataset

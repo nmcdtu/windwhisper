@@ -9,9 +9,21 @@ import os
 from dotenv import load_dotenv
 from xarray import DataArray
 
+from .utils import load_secret
+
 load_dotenv()
 
-OPEN_ELEVATION_API = os.getenv("API_ELEVATION")
+GOOGLE_API_KEY = load_secret()
+
+if GOOGLE_API_KEY:
+    ELEVATION_API = os.getenv("API_ELEVATION_GOOGLE")
+    location_separator, location_extra = "%2C", "%7C"
+    print("Using Google Elevation API")
+else:
+    ELEVATION_API = os.getenv("API_ELEVATION")
+    location_separator, location_extra = ",", "|"
+    print("Using Open Elevation API")
+
 MAX_SAMPLING_POINTS = int(os.getenv("MAX_SAMPLING_POINTS"))
 
 def get_elevation_grid(longitudes: np.array, latitudes: np.array) -> DataArray | None:
@@ -38,10 +50,13 @@ def get_elevation_grid(longitudes: np.array, latitudes: np.array) -> DataArray |
     path = [(lat, lon) for lon in longitudes_ for lat in latitudes_]
 
     # get elevation data from Open Elevation API
-    url = OPEN_ELEVATION_API
+    url = ELEVATION_API
     for lat, lon in path:
-        url += f"{lat},{lon}|"  # append the coordinates to the URL
-    url = url[:-1]
+        url += f"{lat}{location_separator}{lon}{location_extra}"  # append the coordinates to the URL
+    url = url[:-len(location_extra)]  # remove the trailing separator
+
+    if GOOGLE_API_KEY:
+        url += f"&key={GOOGLE_API_KEY}"
 
     response = requests.get(url)
 
@@ -65,12 +80,18 @@ def get_elevation_grid(longitudes: np.array, latitudes: np.array) -> DataArray |
         # increase resolution to match the original bounding box
         xr_array = xr_array.interp(lat=latitudes, lon=longitudes, method="linear")
 
-        # fill missing values with the nearest neighbor
-        xr_array = xr_array.interpolate_na(method="nearest", dim="lat")
-        xr_array = xr_array.interpolate_na(method="nearest", dim="lon")
+        # print number of missing values
+        missing_values = xr_array.isnull().sum()
+        if missing_values > 0:
+            print(f"Missing values in elevation data: {missing_values}")
 
-        # replace missing values with the mean of the surrounding values
-        xr_array = xr_array.fillna(xr_array.mean())
+            # fill missing values with the nearest neighbor, allow extrapolation
+            xr_array = xr_array.interpolate_na(method="nearest", dim="lat", fill_value="extrapolate")
+            xr_array = xr_array.interpolate_na(method="nearest", dim="lon", fill_value="extrapolate")
+            missing_values = xr_array.isnull().sum()
+            if missing_values > 0:
+                print(f"Failed to fill missing values: {missing_values}")
+                xr_array = xr_array.fillna(0)
 
         return xr_array
 
