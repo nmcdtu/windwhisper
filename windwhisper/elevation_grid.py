@@ -8,6 +8,7 @@ import xarray as xr
 import os
 from dotenv import load_dotenv
 from xarray import DataArray
+import pandas as pd
 
 from .utils import load_secret
 
@@ -39,12 +40,8 @@ def get_elevation_grid(longitudes: np.array, latitudes: np.array) -> DataArray |
     min_lon, max_lon = min(longitudes), max(longitudes)
     min_lat, max_lat = min(latitudes), max(latitudes)
 
-    # sample 10 points along the bounding box
-    lon_step = (max_lon - min_lon) / MAX_SAMPLING_POINTS
-    lat_step = (max_lat - min_lat) / MAX_SAMPLING_POINTS
-
-    longitudes_ = np.arange(min_lon, max_lon + lon_step, lon_step)
-    latitudes_ = np.arange(min_lat, max_lat + lat_step, lat_step)
+    longitudes_ = np.linspace(min_lon, max_lon, MAX_SAMPLING_POINTS)
+    latitudes_ = np.linspace(min_lat, max_lat, MAX_SAMPLING_POINTS)
 
     # create a grid of latitudes and longitudes
     path = [(lat, lon) for lon in longitudes_ for lat in latitudes_]
@@ -62,38 +59,30 @@ def get_elevation_grid(longitudes: np.array, latitudes: np.array) -> DataArray |
 
     if response.status_code == 200:
         elevations = response.json()["results"]
-        elevations = [elevation["elevation"] for elevation in elevations]
+        # Extract data into a DataFrame
+        df = pd.DataFrame([
+            {'lat': d['location']['lat'], 'lon': d['location']['lng'], 'elevation': d['elevation']}
+            for d in elevations
+        ])
 
-        # reshape the elevation data into a 2D array
-        elevation_grid = np.array(elevations).reshape(len(latitudes_), len(longitudes_))
+        # Create a pivot table to reshape the data into a grid
+        grid = df.pivot(index='lat', columns='lon', values='elevation')
 
-        xr_array = xr.DataArray(
-            data=elevation_grid,
-            dims=("lat", "lon"),
-            coords={"lat": latitudes_, "lon": longitudes_}
+        da = xr.DataArray(
+            data=grid.values,
+            dims=["lat", "lon"],
+            coords={
+                "lat": grid.index.values,
+                "lon": grid.columns.values,
+            },
+            name="elevation",
         )
 
-        xr_array.attrs["units"] = "meters"
-        xr_array.attrs["description"] = "Elevation data for the given bounding box"
-        xr_array.attrs["cs_code"] = "EPSG:4326"
+        # interpolate to latitudes and longitudes
+        da = da.interp(lat=latitudes, lon=longitudes)
 
-        # increase resolution to match the original bounding box
-        xr_array = xr_array.interp(lat=latitudes, lon=longitudes, method="linear")
-
-        # print number of missing values
-        missing_values = xr_array.isnull().sum()
-        if missing_values > 0:
-            print(f"Missing values in elevation data: {missing_values}")
-
-            # fill missing values with the nearest neighbor, allow extrapolation
-            xr_array = xr_array.interpolate_na(method="nearest", dim="lat", fill_value="extrapolate")
-            xr_array = xr_array.interpolate_na(method="nearest", dim="lon", fill_value="extrapolate")
-            missing_values = xr_array.isnull().sum()
-            if missing_values > 0:
-                print(f"Failed to fill missing values: {missing_values}")
-                xr_array = xr_array.fillna(0)
-
-        return xr_array
+        # Create the xarray Dataset
+        return da
 
     else:
         print(f"Failed to fetch elevation data: {response.status_code}")

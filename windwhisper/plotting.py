@@ -1,8 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import folium
-from folium import Map, Element
-from pyproj import Transformer
+from folium import Element
 import geojson
 from shapely.geometry import LineString, mapping
 

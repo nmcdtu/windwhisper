@@ -5,7 +5,6 @@ This module contains the WindTurbines class which models a wind turbine and pred
 from typing import List, Tuple
 from pathlib import Path
 import re
-import uuid
 
 import pandas as pd
 import numpy as np
@@ -18,8 +17,6 @@ from sklearn.model_selection import train_test_split
 from sklearn.multioutput import MultiOutputRegressor
 import skops.io as sio
 import xarray as xr
-import osmnx as ox
-from osmnx._errors import InsufficientResponseError
 
 
 from . import DATA_DIR

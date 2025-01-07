@@ -3,7 +3,6 @@ This module fetches existing sources of noise from teh EU Noise maps, to figure 
 implementing one or several wind turbines in a given area would be a net contribution to the
 ambient noise level or not. Source: https://www.eea.europa.eu/en/datahub/datahubitem-view/c952f520-8d71-42c9-b74c-b7eb002f939b
 """
-from typing import Tuple, Any
 
 import requests
 from rasterio.io import MemoryFile
@@ -12,7 +11,7 @@ from pyproj import Transformer
 import xarray as xr
 from dotenv import load_dotenv
 import os
-from windwhisper.utils import create_bounding_box, translate_4326_to_3035
+from windwhisper.utils import translate_4326_to_3035
 
 load_dotenv()
 

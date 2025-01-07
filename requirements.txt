@@ -2,7 +2,6 @@ tqdm
 haversine
 folium
 shapely
-windrose
 xarray
 scikit-learn
 numpy<2.0.0
@@ -16,3 +15,7 @@ requests
 rasterio
 pyproj
 dotenv
+geojson
+pyyaml
+rasterio
+pyproj

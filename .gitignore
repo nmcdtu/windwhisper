@@ -23,8 +23,8 @@ dev/fixtures/*
 *.iml
 
 # Secrets #
-./secrets.json
-secrets.json
+secret.json
+secret.json
 
 
 # Compiled source #

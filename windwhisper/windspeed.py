@@ -6,7 +6,6 @@ import pandas as pd
 from pathlib import Path
 import requests
 import os
-from dotenv import load_dotenv
 
 API_NEWA = os.getenv("API_NEWA")
 
