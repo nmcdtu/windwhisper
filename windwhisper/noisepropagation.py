@@ -268,20 +268,36 @@ class NoisePropagation:
 
         """
 
-        # Calculate the noise level at each point
         positions = [point["position"] for point in self.wind_turbines.values()]
 
-        self.haversine_distances = np.array(
+        # Calculate the noise level or distances
+        haversine_distances = np.array(
             [
-                haversine(point1=(lat, lon), point2=position, unit=Unit.METERS)
+                [
+                    [
+                        haversine(point1=(lat, lon), point2=position, unit=Unit.METERS)
+                        for position in positions
+                    ]
+                    for lon in self.LON
+                ]
                 for lat in self.LAT
-                for lon in self.LON
-                for position in positions
             ]
-        ).reshape(self.LAT.shape[0], self.LAT.shape[0], len(positions))
+        )
+
+        # Convert distances into an xarray.DataArray
+        self.haversine_distances = xr.DataArray(
+            haversine_distances,
+            dims=("lat", "lon", "turbine"),
+            coords={
+                "lat": self.LAT,
+                "lon": self.LON,
+                "turbine": list(self.wind_turbines.keys())
+            },
+            name="haversine_distances"
+        )
 
         # Calculate the geometric spreading loss, according to ISO 9613-2
-        distance_attenuation = get_geometric_spread_loss(self.haversine_distances)
+        distance_attenuation = get_geometric_spread_loss(self.haversine_distances.values)
         # pick the minimum value along the turbine axis
         distance_attenuation = np.min(distance_attenuation, axis=-1)
 
@@ -289,7 +305,7 @@ class NoisePropagation:
         atmospheric_absorption = (get_absorption_coefficient(
             self.temperature,
             self.humidity
-        ) * self.haversine_distances) / 1000
+        ) * self.haversine_distances.values) / 1000
 
         # pick the minimum value along the turbine axis
         atmospheric_absorption = np.min(atmospheric_absorption, axis=-1)

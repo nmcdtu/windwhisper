@@ -15,7 +15,7 @@ from windwhisper.elevation_grid import get_elevation_grid, distances_with_elevat
 def compute_turbine_attenuation(args):
     turbine, specs, latitudes, longitudes, elevation_grid, interpolator, euclidian_distances = args
     source_lat, source_lon = specs["position"]
-    source_elevation = interpolator([source_lat, source_lon])
+    source_elevation = interpolator([source_lat, source_lon]) + specs["hub height"]
 
     ground_attenuation = np.zeros((len(latitudes), len(longitudes)))
     obstacles_attenuation = np.zeros((len(latitudes), len(longitudes)))
@@ -37,28 +37,30 @@ def compute_turbine_attenuation(args):
             straight_elevation = np.squeeze(np.linspace(source_elevation, receiver_elevation, path_elevations.size))
 
             # Obstacle detection
-            obstacle_mask = path_elevations > (straight_elevation + 10)  # Boolean mask of obstacles
+            obstacle_mask = path_elevations > (straight_elevation + 5)  # Boolean mask of obstacles
 
             if np.any(obstacle_mask):  # Check if there are any obstacles
-                # Indexing is now safe because all arrays are 1D
-                obstacle_heights = path_elevations[obstacle_mask] - straight_elevation[obstacle_mask]
-                max_obstacle_height = obstacle_heights.max()
+                #print(obstacle_mask.sum())
+                # Calculate distances for diffraction
+                obstacle_index = np.argmax(obstacle_mask)
+                d_ss = obstacle_index / len(path_elevations) * euclidian_distances.values[i, j]
+                d_sr = euclidian_distances.values[i, j] - d_ss
+                d = euclidian_distances.values[i, j]
 
-                # Calculate obstacle distance
-                obstacle_distance = (
-                        np.argmax(obstacle_mask) / len(path_elevations)
-                        * euclidian_distances.values[i, j]
-                )
+                # Calculate path length difference
+                z = d_ss + d_sr - d
 
-                # ISO 9613-2 obstacle attenuation formula
-                obstacle_attenuation = 10 + 20 * np.log10(max_obstacle_height / obstacle_distance)
-                obstacles_attenuation[i, j] = max(0, obstacle_attenuation)
+                # Use ISO 9613-2 barrier attenuation formula for dBA
+                lambda_eff = 0.34  # Effective wavelength for A-weighted spectrum (1 kHz)
+                a_bar_dba = 10 * np.log10(3 + 40 * (z / lambda_eff))
+
+                obstacles_attenuation[i, j] = max(0, a_bar_dba)
 
             # Area between path and straight line
             area = np.clip(np.trapz(straight_elevation - path_elevations, dx=1), 0, None)
             mean_height = area / euclidian_distances.values[i, j]
-            attenuation = 4.8 - ((2 * mean_height) / euclidian_distances.values[i, j]) * (17 + (300 / euclidian_distances.values[i, j]))
-            ground_attenuation[i, j] = max(0, attenuation)
+            a_gr = 4.8 - ((2 * mean_height) / euclidian_distances.values[i, j]) * (17 + (300 / euclidian_distances.values[i, j]))
+            ground_attenuation[i, j] = max(0, a_gr)
 
     return ground_attenuation, obstacles_attenuation
 

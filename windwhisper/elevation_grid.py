@@ -59,6 +59,7 @@ def get_elevation_grid(longitudes: np.array, latitudes: np.array) -> DataArray |
 
     if response.status_code == 200:
         elevations = response.json()["results"]
+
         # Extract data into a DataFrame
         df = pd.DataFrame([
             {'lat': d['location']['lat'], 'lon': d['location']['lng'], 'elevation': d['elevation']}
@@ -68,6 +69,7 @@ def get_elevation_grid(longitudes: np.array, latitudes: np.array) -> DataArray |
         # Create a pivot table to reshape the data into a grid
         grid = df.pivot(index='lat', columns='lon', values='elevation')
 
+        # Create the xarray DataArray
         da = xr.DataArray(
             data=grid.values,
             dims=["lat", "lon"],
@@ -81,7 +83,6 @@ def get_elevation_grid(longitudes: np.array, latitudes: np.array) -> DataArray |
         # interpolate to latitudes and longitudes
         da = da.interp(lat=latitudes, lon=longitudes)
 
-        # Create the xarray Dataset
         return da
 
     else:
