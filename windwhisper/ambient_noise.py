@@ -52,7 +52,8 @@ def get_noise_values(url: str, x_min, x_max, y_min, y_max, resolution) -> xr.Dat
                 # Read the first band of data
                 data = dataset.read(1)
                 data = np.nan_to_num(data, nan=15)  # Replace NaN values with 15
-                data = np.vectorize(PIXEL_VALUE_TO_LDEN.get)(data)
+
+                data = np.vectorize(lambda x: PIXEL_VALUE_TO_LDEN.get(x, 0))(data)
                 return data
     else:
         print(f"Failed to fetch data: {response.status_code}")
