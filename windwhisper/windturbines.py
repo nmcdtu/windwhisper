@@ -125,10 +125,10 @@ def load_model(filepath=None) -> Tuple[RegressorMixin, List[str]]:
     # Review the unknown_types list
     print("Unknown types:", unknown_types)
 
-    # If these types are safe, load the model
+    # If these types are safe, load both model and noise columns
     model, noise_cols = sio.load(
-        filepath, trusted=True
-    )  # Load both model and noise columns
+        filepath, trusted = unknown_types
+    )
 
     return model, noise_cols
 
