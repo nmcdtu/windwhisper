@@ -39,6 +39,7 @@ the L_den indicator. Results can be exported on a map.
         
     data = wind_speed_data()
     
+    # list of wind turbines to analyze
     wind_turbines = {
         'Turbine 0': 
          {
